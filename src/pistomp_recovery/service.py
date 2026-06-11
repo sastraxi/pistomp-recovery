@@ -28,6 +28,10 @@ def get_boot_mode() -> BootMode:
 
 
 def stop_main_app() -> bool:
+    """
+    Redundant under systemd (unit Conflicts= already stops main); the safety
+    net for launching recovery directly, where no conflict is enforced.
+    """
     logger.info("Stopping mod-ala-pi-stomp")
     result: subprocess.CompletedProcess[str] = subprocess.run(
         ["systemctl", "stop", "mod-ala-pi-stomp"],
