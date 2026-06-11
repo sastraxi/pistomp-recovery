@@ -6,25 +6,25 @@ pkgdesc="Package update and recovery service for pi-Stomp"
 arch=('aarch64')
 url="https://github.com/sastraxi/pistomp-recovery"
 license=('MIT')
-depends=('python' 'jack2-pistomp' 'lg' 'spidev' 'rpi-lgpio' 'adafruit-circuitpython-rgb-display' 'adafruit-circuitpython-mcp3xxx' 'Adafruit-Blinka-Raspberry-Pi5-Neopixel')
-makedepends=('uv' 'git')
-source=("git+${url}.git#branch=main")
+depends=('python' 'jack2-pistomp' 'lg')
+makedepends=('uv' 'git' 'swig')
+source=("pistomp-recovery::git+${url}.git#branch=main")
 sha256sums=('SKIP')
 
 build() {
-    cd "${srcdir}/${pkgname}"
+    cd pistomp-recovery
     uv venv --python /usr/bin/python --system-site-packages "${srcdir}/venv"
-    UV_PROJECT_ENVIRONMENT="${srcdir}/venv" uv sync --frozen --no-dev
+    UV_PROJECT_ENVIRONMENT="${srcdir}/venv" uv sync --frozen --no-dev --extra hardware
 }
 
 package() {
-    cd "${srcdir}/${pkgname}"
+    cd pistomp-recovery
 
     # Install venv
     install -d "${pkgdir}/opt/pistomp/venvs/pistomp-recovery"
     cp -r "${srcdir}/venv/"* "${pkgdir}/opt/pistomp/venvs/pistomp-recovery/"
 
     # Install service file
-    install -Dm644 "${srcdir}/${pkgname}/files/pistomp-recovery.service" \
+    install -Dm644 "${srcdir}/pistomp-recovery/files/pistomp-recovery.service" \
         "${pkgdir}/usr/lib/systemd/system/pistomp-recovery.service"
 }

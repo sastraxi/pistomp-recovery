@@ -33,7 +33,7 @@ _BOLD_SIZES: frozenset[int] = frozenset({SIZES["title"], SIZES["heading"]})
 class SafeFont:
     """Drop-in replacement for pygame.font.Font that uses pygame._freetype."""
 
-    def __init__(self, path: str, size: int) -> None:
+    def __init__(self, path: str | None, size: int) -> None:
         _pg_init()
         self._ft: _freetype.Font = _freetype.Font(path, size)  # type: ignore[assignment]
 
