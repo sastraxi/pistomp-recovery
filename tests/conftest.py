@@ -140,6 +140,92 @@ class FakeInputManager:
 
 
 # ---------------------------------------------------------------------------
+# RecoveryApp test harness — drives real app with fake hardware
+# ---------------------------------------------------------------------------
+
+
+class AppHarness:
+    """Wraps a RecoveryApp with event injection and frame capture."""
+
+    def __init__(self, app: "RecoveryApp", fake_lcd: FakeLcd) -> None:
+        self.app = app
+        self.lcd = fake_lcd
+
+    def inject(self, *events: InputEvent) -> None:
+        """Feed events into the app and redraw if dirty."""
+        for ev in events:
+            self.app._handle_event(ev)
+        if self.app._dirty:
+            self.app._draw_current_screen()
+            self.app._display.update(self.app._display.surface)
+            self.app._dirty = False
+
+    def scroll_to(self, label: str) -> None:
+        """Scroll the current menu until the given label is selected."""
+        menu = self._current_menu()
+        if menu is None:
+            return
+        for _ in range(len(menu.items) * 2):
+            if menu.sel_index < len(menu.items):
+                current_label = menu.items[menu.sel_index][0]
+                if label in current_label:
+                    return
+            self.inject(InputEvent.RIGHT)
+        raise RuntimeError(f"Could not find menu item: {label}")
+
+    def select(self, label: str) -> None:
+        """Scroll to and click a menu item."""
+        self.scroll_to(label)
+        self.inject(InputEvent.CLICK)
+
+    def long_press(self) -> None:
+        self.inject(InputEvent.LONG_CLICK)
+
+    def _current_menu(self) -> "Menu | None":
+        screen = self.app._current_screen()
+        from pistomp_recovery.ui.screens.menu_screen import MenuScreen
+        if isinstance(screen, MenuScreen):
+            return screen._menu
+        return None
+
+    @property
+    def current_screen(self) -> "Screen | None":
+        return self.app._current_screen()
+
+    @property
+    def surface(self) -> pygame.Surface:
+        return self.app._display.surface
+
+
+@pytest.fixture
+def recovery_app(fake_encoder: FakeEncoder, fake_input: FakeInputManager, fake_lcd: FakeLcd, monkeypatch: pytest.MonkeyPatch) -> "Generator[AppHarness, None, None]":
+    """Construct a RecoveryApp with fake hardware, initialized and ready to drive."""
+    from pistomp_recovery.__main__ import RecoveryApp
+    from pistomp_recovery.service import BootMode
+
+    # Prevent subprocess calls during init
+    monkeypatch.setattr("pistomp_recovery.__main__.stop_main_app", lambda: True)
+    monkeypatch.setattr("pistomp_recovery.__main__.start_main_app", lambda: True)
+    # Prevent package/git calls from failing in tests
+    monkeypatch.setattr("pistomp_recovery.__main__.list_pedalboard_items", lambda: [])
+    monkeypatch.setattr("pistomp_recovery.__main__.list_package_items", lambda: [])
+    monkeypatch.setattr("pistomp_recovery.__main__.get_available_updates", lambda: [])
+    monkeypatch.setattr("pistomp_recovery.__main__.list_config_items", lambda: [])
+    monkeypatch.setattr("pistomp_recovery.__main__.list_system_items", lambda: [])
+
+    app = RecoveryApp(BootMode.USER_RECOVERY)
+    # Swap in fakes before init
+    app._encoder = fake_encoder
+    app._input = fake_input
+    app._display._lcd = fake_lcd  # type: ignore[union-attr]
+    app.init()
+
+    harness = AppHarness(app, fake_lcd)
+    yield harness
+    app.cleanup()
+
+
+# ---------------------------------------------------------------------------
 # Snapshot helpers
 # ---------------------------------------------------------------------------
 

@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import subprocess
 import time
-from datetime import datetime, timezone
-from pathlib import Path
 
 import pygame
 
@@ -25,18 +24,12 @@ from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
 from pistomp_recovery.emulator.lcd_pygame import LcdPygame
 from pistomp_recovery.emulator.window import EmulatorWindow
-from pistomp_recovery.facets.packages_facet import PackageItem
-from pistomp_recovery.facets.pedalboards_facet import PedalboardItem
-from pistomp_recovery.service import BootMode
+from pistomp_recovery.items import Action, Item
+from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.screens import Screen
 from pistomp_recovery.ui.screens.crash import CrashScreen
-from pistomp_recovery.ui.screens.main_menu import MainMenuScreen
-from pistomp_recovery.ui.screens.packages_screen import PackagesScreen
-from pistomp_recovery.ui.screens.pedalboards_screen import PedalboardsScreen
-from pistomp_recovery.ui.screens.reset_screen import DirtyItem, ResetScreen
+from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.screens.system_info import SystemInfoScreen
-from pistomp_recovery.ui.screens.types import Actions
-from pistomp_recovery.ui.screens.updates import UpdatesScreen
 from pistomp_recovery.ui.widgets.confirm_dialog import ConfirmDialog
 from pistomp_recovery.ui.widgets.misc import InputEvent
 
@@ -44,61 +37,121 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL: float = 0.02
 
-STUB_PEDALBOARDS: list[PedalboardItem] = [
-    PedalboardItem(
+# ---------------------------------------------------------------------------
+# Stub data that covers all four states:
+#   Clean (stamped, unchanged)    ->  "✓ 2d ago"
+#   Dirty (stamped, changed)      ->  "*" + "2d ago"
+#   Factory (never modified)       ->  "factory"
+#   Unknown (modified, no stamp)   ->  "*" + "?"
+# ---------------------------------------------------------------------------
+
+STUB_PEDALBOARDS: list[Item] = [
+    Item(
         name="AmpBud.pedalboard",
-        path=Path("/tmp/stub/AmpBud.pedalboard"),
-        is_dirty=True,
-        last_stamp_time=datetime(2026, 6, 9, 10, 0, tzinfo=timezone.utc),
-        last_stamp_tag="stamp/pedalboard/AmpBud.pedalboard/20260609-100000",
+        label="AmpBud.pedalboard",
+        dirty=True,
+        right="2d ago",
+        actions=[
+            Action("Rollback to stamp", lambda: None, "Rollback?"),
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
     ),
-    PedalboardItem(
+    Item(
         name="Beths.pedalboard",
-        path=Path("/tmp/stub/Beths.pedalboard"),
-        is_dirty=False,
-        last_stamp_time=datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc),
-        last_stamp_tag="stamp/pedalboard/Beths.pedalboard/20260608-143000",
+        label="Beths.pedalboard",
+        dirty=False,
+        right="✓ 3d ago",
+        actions=[
+            Action("Rollback to stamp", lambda: None, "Rollback?"),
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
     ),
-    PedalboardItem(
+    Item(
         name="Carbon-Copy.pedalboard",
-        path=Path("/tmp/stub/Carbon-Copy.pedalboard"),
-        is_dirty=True,
-        last_stamp_time=datetime(2026, 6, 7, 20, 0, tzinfo=timezone.utc),
-        last_stamp_tag="stamp/pedalboard/Carbon-Copy.pedalboard/20260607-200000",
+        label="Carbon-Copy.pedalboard",
+        dirty=True,
+        right="?",
+        actions=[
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
     ),
-    PedalboardItem(
+    Item(
         name="factory-defaults.pedalboard",
-        path=Path("/tmp/stub/factory-defaults.pedalboard"),
-        is_dirty=False,
-        last_stamp_time=None,
-        last_stamp_tag=None,
+        label="factory-defaults.pedalboard",
+        dirty=False,
+        right="factory",
+        actions=[
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
     ),
 ]
 
-STUB_PACKAGES: list[PackageItem] = [
-    PackageItem(
+STUB_PACKAGES: list[Item] = [
+    Item(
         name="jack2-pistomp",
-        installed_version="1.9.12",
-        stamped_version="1.9.11",
-        factory_version="1.9.10",
-        available_version="1.9.13",
-        last_stamp_time=datetime(2026, 6, 8, tzinfo=timezone.utc),
+        label="jack2-pistomp",
+        dirty=True,
+        right="↑1.9.13",
+        actions=[
+            Action("Update to 1.9.13", lambda: None, "Update?"),
+            Action("Rollback to stamp", lambda: None, "Rollback?"),
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
     ),
-    PackageItem(
+    Item(
         name="mod-ui",
-        installed_version="0.13.0",
-        stamped_version="0.13.0",
-        factory_version="0.12.0",
-        available_version="0.14.0",
-        last_stamp_time=datetime(2026, 6, 7, tzinfo=timezone.utc),
+        label="mod-ui",
+        dirty=False,
+        right="↑0.14.0",
+        actions=[
+            Action("Update to 0.14.0", lambda: None, "Update?"),
+            Action("Rollback to stamp", lambda: None, "Rollback?"),
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
     ),
-    PackageItem(
+    Item(
         name="pi-stomp",
-        installed_version="2.4.1",
-        stamped_version="2.4.1",
-        factory_version="2.4.0",
-        available_version=None,
-        last_stamp_time=datetime(2026, 6, 6, tzinfo=timezone.utc),
+        label="pi-stomp",
+        dirty=False,
+        right="✓ 4d ago",
+        actions=[
+            Action("Rollback to stamp", lambda: None, "Rollback?"),
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
+    ),
+    Item(
+        name="pistomp-recovery",
+        label="pistomp-recovery",
+        dirty=True,
+        right="?",
+        actions=[
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
+    ),
+]
+
+STUB_CONFIG: list[Item] = [
+    Item(
+        name="config",
+        label="Config",
+        dirty=True,
+        right="2d ago",
+        actions=[
+            Action("Rollback to stamp", lambda: None, "Rollback?"),
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
+    ),
+]
+
+STUB_SYSTEM: list[Item] = [
+    Item(
+        name="system",
+        label="System",
+        dirty=False,
+        right="factory",
+        actions=[
+            Action("Rollback to factory", lambda: None, "Factory reset?"),
+        ],
     ),
 ]
 
@@ -106,6 +159,16 @@ STUB_UPDATES: list[tuple[str, str, str]] = [
     ("jack2-pistomp", "1.9.12", "1.9.13"),
     ("mod-ui", "0.13.0", "0.14.0"),
 ]
+
+
+def _stub_systemctl(*args: str) -> subprocess.CompletedProcess[str]:
+    """Safe systemctl stub for macOS / non-systemd environments."""
+    return subprocess.CompletedProcess(
+        args=list(args),
+        returncode=0,
+        stdout="active\n",
+        stderr="",
+    )
 
 
 class EmulatorApp:
@@ -120,6 +183,7 @@ class EmulatorApp:
         self._screen_stack: list[Screen] = []
         self._confirm_active: bool = False
         self._confirm_dialog: ConfirmDialog | None = None
+        self._dirty: bool = True
 
     def init(self) -> None:
         pygame.init()
@@ -131,15 +195,26 @@ class EmulatorApp:
         logger.info("Emulator initialized (boot mode: %s)", self._boot_mode.name)
 
         if self._boot_mode == BootMode.CRASH_RECOVERY:
-            screen: CrashScreen = CrashScreen(
-                self._surface,
+            crash_info: CrashInfo = CrashInfo(
+                boot_mode=BootMode.CRASH_RECOVERY,
+                failed_service="mod-host",
                 crash_log=(
                     "Traceback (most recent call last):\n"
-                    '  File "modalapistomp.py", line 42\n'
+                    "  File 'modalapistomp.py', line 42\n"
                     "    handler.poll_controls()\n"
                     "AttributeError: 'NoneType' object"
                     " has no attribute 'poll_controls'"
                 ),
+                service_states={
+                    "jack": "active",
+                    "mod-host": "failed",
+                    "mod-ui": "inactive",
+                    "mod-ala-pi-stomp": "inactive",
+                },
+            )
+            screen: CrashScreen = CrashScreen(
+                self._surface,
+                crash_info=crash_info,
                 on_resume=self._resume,
                 on_recovery=self._show_main_menu,
             )
@@ -153,105 +228,176 @@ class EmulatorApp:
     def _push_screen(self, screen: Screen) -> None:
         screen.set_back_callback(self._pop_screen)
         self._screen_stack.append(screen)
+        self._dirty = True
 
     def _pop_screen(self) -> None:
         if len(self._screen_stack) > 1:
             self._screen_stack.pop()
+            self._dirty = True
 
     def _show_main_menu(self) -> None:
-        dirty: int = sum(1 for p in STUB_PEDALBOARDS if p.is_dirty)
-        dirty += sum(1 for p in STUB_PACKAGES if p.is_dirty)
-        updates: int = sum(1 for p in STUB_PACKAGES if p.available_version is not None)
+        dirty: int = sum(1 for p in STUB_PEDALBOARDS if p.dirty)
+        dirty += sum(1 for p in STUB_PACKAGES if p.dirty)
+        dirty += sum(1 for p in STUB_CONFIG if p.dirty)
+        dirty += sum(1 for p in STUB_SYSTEM if p.dirty)
+        updates: int = sum(1 for p in STUB_PACKAGES if p.right.startswith("↑"))
 
-        actions: Actions = {
-            "resume": self._resume,
-            "reset": self._show_reset,
-            "update": self._show_updates,
-            "pedalboards": self._show_pedalboards,
-            "packages": self._show_packages,
-            "system_info": self._show_system_info,
-            "reboot": lambda: logger.info("Reboot (emulated)"),
-            "power_off": lambda: setattr(self, "_running", False),
-        }
-        menu: MainMenuScreen = MainMenuScreen(
+        items: list[Item] = [
+            Item("resume", "Resume", False, "",
+                 [Action("Resume", self._resume)]),
+        ]
+        if dirty > 0:
+            items.append(
+                Item("reset", "Reset...", True,
+                     f"{dirty} changed",
+                     [Action("Open", self._show_reset)]),
+            )
+        if updates > 0:
+            items.append(
+                Item("update", "Update...", False,
+                     f"{updates} available",
+                     [Action("Open", self._show_updates)]),
+            )
+        items.extend([
+            Item("pedalboards", "Pedalboards...", False, "",
+                 [Action("Open", self._show_pedalboards)]),
+            Item("packages", "Packages...", False, "",
+                 [Action("Open", self._show_packages)]),
+            Item("config", "Config...", False, "",
+                 [Action("Open", self._show_config)]),
+            Item("system", "System...", False, "",
+                 [Action("Open", self._show_system)]),
+            Item("system_info", "System Info...", False, "",
+                 [Action("Open", self._show_system_info)]),
+            Item("reboot", "Reboot", False, "",
+                 [Action("Reboot",
+                  lambda: logger.info("Reboot (emulated)"))]),
+            Item("power_off", "Power Off", False, "",
+                 [Action("Power Off",
+                  lambda: setattr(self, "_running", False))]),
+        ])
+
+        menu: MenuScreen = MenuScreen(
             self._surface,
-            actions=actions,
-            dirty_count=dirty,
-            update_count=updates,
+            title="Recovery",
+            items=items,
+            back_callback=None,
         )
         self._push_screen(menu)
 
     def _show_reset(self) -> None:
-        items: list[DirtyItem] = []
-        for pb in STUB_PEDALBOARDS:
-            if pb.is_dirty:
-                items.append(
-                    DirtyItem(
-                        label=pb.display_label,
-                        right=pb.display_right,
-                        kind="pedalboard",
-                        name=pb.name,
-                    )
-                )
-        for pkg in STUB_PACKAGES:
-            if pkg.is_dirty:
-                drift: str = pkg.version_drift
-                right: str = f"{drift}  {pkg.display_time}" if drift else pkg.display_time
-                items.append(
-                    DirtyItem(
-                        label=pkg.display_name,
-                        right=right,
-                        kind="package",
-                        name=pkg.name,
-                    )
-                )
-
-        screen: ResetScreen = ResetScreen(
+        dirty_items: list[Item] = (
+            [p for p in STUB_PEDALBOARDS if p.dirty]
+            + [p for p in STUB_PACKAGES if p.dirty]
+            + [p for p in STUB_CONFIG if p.dirty]
+            + [p for p in STUB_SYSTEM if p.dirty]
+        )
+        screen: MenuScreen = MenuScreen(
             self._surface,
-            items,
-            on_rollback_stamp=lambda k, n: logger.info("Rollback stamp: %s %s (emulated)", k, n),
-            on_rollback_factory=lambda k, n: logger.info(
-                "Rollback factory: %s %s (emulated)", k, n
-            ),
+            title="Reset",
+            items=dirty_items,
+            back_callback=self._pop_screen,
         )
         self._push_screen(screen)
 
     def _show_updates(self) -> None:
-        screen: UpdatesScreen = UpdatesScreen(
+        update_items: list[Item] = []
+        for pkg, old_ver, new_ver in STUB_UPDATES:
+            update_items.append(
+                Item(
+                    name=pkg,
+                    label=f"{pkg} {old_ver} → {new_ver}",
+                    dirty=False,
+                    right="",
+                    actions=[
+                        Action(
+                            f"Update to {new_ver}",
+                            lambda p=pkg: logger.info(
+                                "Install %s (emulated)", p),
+                            confirm=f"Update {pkg}?",
+                        ),
+                    ],
+                )
+            )
+        update_items.append(
+            Item(
+                name="all",
+                label="Update All",
+                dirty=False,
+                right="",
+                actions=[
+                    Action(
+                        "Update All",
+                        lambda: logger.info("Install all (emulated)"),
+                        confirm="Update all?",
+                    )
+                ],
+            )
+        )
+        screen: MenuScreen = MenuScreen(
             self._surface,
-            STUB_UPDATES,
-            on_install=lambda pkgs: logger.info("Install all: %s (emulated)", pkgs),
-            on_install_single=lambda pkg: logger.info("Install single: %s (emulated)", pkg),
+            title="Updates",
+            items=update_items,
+            back_callback=self._pop_screen,
         )
         self._push_screen(screen)
 
     def _show_pedalboards(self) -> None:
-        screen: PedalboardsScreen = PedalboardsScreen(
+        screen: MenuScreen = MenuScreen(
             self._surface,
-            STUB_PEDALBOARDS,
-            on_stamp=lambda n: logger.info("Stamp pedalboard: %s (emulated)", n),
-            on_rollback_stamp=lambda n: logger.info("Rollback stamp: %s (emulated)", n),
-            on_rollback_factory=lambda n: logger.info("Rollback factory: %s (emulated)", n),
+            title="Pedalboards",
+            items=list(STUB_PEDALBOARDS),
+            back_callback=self._pop_screen,
         )
         self._push_screen(screen)
 
     def _show_packages(self) -> None:
-        screen: PackagesScreen = PackagesScreen(
+        screen: MenuScreen = MenuScreen(
             self._surface,
-            STUB_PACKAGES,
-            pending_restart=["jack", "mod-host"],
-            on_stamp=lambda n: logger.info("Stamp package: %s (emulated)", n),
-            on_rollback_stamp=lambda n: logger.info("Rollback stamp: %s (emulated)", n),
-            on_rollback_factory=lambda n: logger.info("Rollback factory: %s (emulated)", n),
-            on_update=lambda n: logger.info("Update package: %s (emulated)", n),
-            on_restart_services=lambda: logger.info("Restart services (emulated)"),
+            title="Packages",
+            items=list(STUB_PACKAGES),
+            back_callback=self._pop_screen,
+        )
+        self._push_screen(screen)
+
+    def _show_config(self) -> None:
+        screen: MenuScreen = MenuScreen(
+            self._surface,
+            title="Config",
+            items=list(STUB_CONFIG),
+            back_callback=self._pop_screen,
+        )
+        self._push_screen(screen)
+
+    def _show_system(self) -> None:
+        screen: MenuScreen = MenuScreen(
+            self._surface,
+            title="System",
+            items=list(STUB_SYSTEM),
+            back_callback=self._pop_screen,
         )
         self._push_screen(screen)
 
     def _show_system_info(self) -> None:
-        screen: SystemInfoScreen = SystemInfoScreen(self._surface)
-        screen.refresh()
-        self._push_screen(screen)
+        # Stub systemctl so get_system_info doesn't crash on macOS
+        import pistomp_recovery.service as svc
+        original_run = subprocess.run
+        svc._original_run = original_run  # type: ignore[attr-defined]
+
+        def safe_run(
+            cmd: "str | list[str]", **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            if isinstance(cmd, list) and cmd[0] == "systemctl":
+                return _stub_systemctl(*cmd)
+            return original_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+        subprocess.run = safe_run  # type: ignore[assignment]
+        try:
+            screen: SystemInfoScreen = SystemInfoScreen(self._surface)
+            screen.refresh()
+            self._push_screen(screen)
+        finally:
+            subprocess.run = original_run  # type: ignore[assignment]
 
     def _resume(self) -> None:
         logger.info("Resume pressed (emulated)")
@@ -266,8 +412,10 @@ class EmulatorApp:
             for event in events:
                 self._handle_event(event)
 
-            self._draw_current_screen()
-            self._window.render()
+            if self._dirty:
+                self._draw_current_screen()
+                self._window.render()
+                self._dirty = False
             time.sleep(POLL_INTERVAL)
 
     def _handle_event(self, event: InputEvent) -> None:
@@ -282,6 +430,8 @@ class EmulatorApp:
         if not screen.handle_event(event):
             if event == InputEvent.LONG_CLICK:
                 self._pop_screen()
+        else:
+            self._dirty = True
 
     def _draw_current_screen(self) -> None:
         screen: Screen | None = self._screen_stack[-1] if self._screen_stack else None
@@ -294,8 +444,10 @@ def main() -> None:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description="pistomp-recovery emulator"
     )
-    parser.add_argument("--log", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    parser.add_argument("--force-crash", action="store_true", help="Start in crash recovery mode")
+    parser.add_argument("--log", default="INFO",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--force-crash", action="store_true",
+                        help="Start in crash recovery mode")
     args: argparse.Namespace = parser.parse_args()
 
     logging.basicConfig(
@@ -303,7 +455,9 @@ def main() -> None:
         format="%(levelname)s:%(name)s:%(message)s",
     )
 
-    boot_mode: BootMode = BootMode.CRASH_RECOVERY if args.force_crash else BootMode.USER_RECOVERY
+    boot_mode: BootMode = (
+        BootMode.CRASH_RECOVERY if args.force_crash else BootMode.USER_RECOVERY
+    )
     app: EmulatorApp = EmulatorApp(boot_mode)
 
     try:

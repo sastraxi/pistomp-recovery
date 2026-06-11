@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
 from pistomp_recovery.constants import PISTOMP_SERVICES
+from pistomp_recovery.packages.health import service_journal, service_status
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,37 @@ class BootMode(Enum):
     NORMAL = auto()
     CRASH_RECOVERY = auto()
     USER_RECOVERY = auto()
+
+
+@dataclass
+class CrashInfo:
+    boot_mode: BootMode
+    failed_service: str | None
+    crash_log: str
+    service_states: dict[str, str]
+
+
+def diagnose_crash() -> CrashInfo:
+    """Determine why recovery was triggered."""
+    chain: list[str] = ["jack", "mod-host", "mod-ui", "mod-ala-pi-stomp"]
+    states: dict[str, str] = {}
+    failed_service: str | None = None
+    for svc in chain:
+        states[svc] = service_status(svc)
+        if states[svc] == "failed" and failed_service is None:
+            failed_service = svc
+
+    crash_log: str = ""
+    if failed_service:
+        crash_log = service_journal(failed_service, lines=10)
+
+    boot_mode = BootMode.CRASH_RECOVERY if failed_service else BootMode.USER_RECOVERY
+    return CrashInfo(
+        boot_mode=boot_mode,
+        failed_service=failed_service,
+        crash_log=crash_log,
+        service_states=states,
+    )
 
 
 def get_boot_mode() -> BootMode:
@@ -89,5 +122,8 @@ def get_system_info() -> dict[str, str]:
         for line in os_release.read_text().splitlines():
             if line.startswith("PRETTY_NAME="):
                 info["os"] = line.split("=", 1)[1].strip('"')
+
+    for svc in PISTOMP_SERVICES:
+        info[svc] = service_status(svc)
 
     return info

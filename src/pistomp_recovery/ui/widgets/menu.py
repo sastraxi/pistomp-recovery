@@ -4,11 +4,9 @@ from typing import Callable
 
 import pygame
 
-from pistomp_recovery.ui.colors import COLORS, Color
+from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.fonts import get_font
-from pistomp_recovery.ui.widgets.container import Container
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
-from pistomp_recovery.ui.widgets.paint import PaintContext
 
 ITEM_HEIGHT: int = 22
 MARGIN: int = 4
@@ -17,14 +15,13 @@ RIGHT_COL_PAD: int = 8
 MenuItem = tuple[str, Callable[[], None], str]
 
 
-class Menu(Container):
+class Menu:
     def __init__(self, bounds: Box, title: str = "") -> None:
-        super().__init__(bounds)
+        self.bounds: Box = bounds
         self.title: str = title
         self.items: list[MenuItem] = []
         self.sel_index: int = 0
         self.scroll_offset: int = 0
-        self.auto_dismiss: bool = False
         self._right_col_width: int = 0
 
     def add_item(
@@ -32,14 +29,12 @@ class Menu(Container):
     ) -> None:
         self.items.append((label, callback, right))
         self._recalc_right_col()
-        self.mark_dirty()
 
     def clear_items(self) -> None:
         self.items.clear()
         self.sel_index = 0
         self.scroll_offset = 0
         self._right_col_width = 0
-        self.mark_dirty()
 
     def _recalc_right_col(self) -> None:
         if not self.items:
@@ -55,7 +50,8 @@ class Menu(Container):
 
     @property
     def visible_count(self) -> int:
-        content_h: int = self.bounds.h - 20 if self.title else self.bounds.h
+        title_h: int = 20 if self.title else 0
+        content_h: int = self.bounds.h - title_h
         return max(1, content_h // ITEM_HEIGHT)
 
     def handle_event(self, event: InputEvent) -> bool:
@@ -65,12 +61,10 @@ class Menu(Container):
         if event == InputEvent.LEFT:
             self.sel_index = (self.sel_index - 1) % len(self.items)
             self._scroll_into_view()
-            self.mark_dirty()
             return True
         elif event == InputEvent.RIGHT:
             self.sel_index = (self.sel_index + 1) % len(self.items)
             self._scroll_into_view()
-            self.mark_dirty()
             return True
         elif event == InputEvent.CLICK:
             if 0 <= self.sel_index < len(self.items):
@@ -85,11 +79,9 @@ class Menu(Container):
         elif self.sel_index >= self.scroll_offset + self.visible_count:
             self.scroll_offset = self.sel_index - self.visible_count + 1
 
-    def draw(self, ctx: PaintContext) -> None:
-        surface: pygame.Surface = ctx.surface
-        from pistomp_recovery.ui.widgets.panel import TITLE_BAR_H
-
-        y_start: int = self.bounds.y + (TITLE_BAR_H if self.title else 0)
+    def draw(self, surface: pygame.Surface) -> None:
+        title_h: int = 20 if self.title else 0
+        y_start: int = self.bounds.y + title_h
         x_start: int = self.bounds.x + MARGIN
         font = get_font(20)
         small_font = get_font(16)
@@ -107,10 +99,10 @@ class Menu(Container):
                 )
                 pygame.draw.rect(surface, COLORS["selection_bg"], sel_rect, border_radius=3)
 
-            text_color: Color = (
+            text_color = (
                 COLORS["text_bright"] if is_selected else COLORS["text_dim"]
             )
-            right_color: Color = (
+            right_color = (
                 COLORS["text_accent"] if is_selected else COLORS["text_dim"]
             )
 
@@ -151,5 +143,3 @@ class Menu(Container):
             )
             scroll_rect: pygame.Rect = pygame.Rect(self.bounds.right - 4, bar_y, 2, bar_h)
             pygame.draw.rect(surface, COLORS["scroll_thumb"], scroll_rect)
-
-        self._dirty_region = None

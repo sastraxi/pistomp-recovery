@@ -15,9 +15,7 @@ from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.widgets.menu import Menu
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
-from pistomp_recovery.ui.widgets.paint import PaintContext
-from pistomp_recovery.ui.widgets.panel import Panel
-from pistomp_recovery.ui.widgets.text import ProgressBar, StatusLine, TextWidget
+from pistomp_recovery.ui.widgets.text import ProgressBar, StatusLine
 from tests.conftest import FakeLcd
 
 
@@ -40,11 +38,7 @@ class TestMenuWidget:
         menu.add_item("Power Off", lambda: None)
 
         surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        menu.draw(ctx)
+        menu.draw(surface)
         fake_lcd.update(surface)
         snapshot()
 
@@ -60,11 +54,7 @@ class TestMenuWidget:
             menu.handle_event(InputEvent.LEFT)
 
         surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        menu.draw(ctx)
+        menu.draw(surface)
         fake_lcd.update(surface)
         snapshot("scrolled")
 
@@ -75,11 +65,7 @@ class TestProgressBar:
     ) -> None:
         bar: ProgressBar = ProgressBar(Box(20, 100, 280, 30))
         surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        bar.draw(ctx)
+        bar.draw(surface)
         fake_lcd.update(surface)
         snapshot()
 
@@ -90,11 +76,7 @@ class TestProgressBar:
             Box(20, 100, 280, 30), progress=0.5, label="Installing..."
         )
         surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        bar.draw(ctx)
+        bar.draw(surface)
         fake_lcd.update(surface)
         snapshot()
 
@@ -105,11 +87,7 @@ class TestProgressBar:
             Box(20, 100, 280, 30), progress=1.0, label="Complete"
         )
         surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        bar.draw(ctx)
+        bar.draw(surface)
         fake_lcd.update(surface)
         snapshot()
 
@@ -122,11 +100,7 @@ class TestStatusLine:
             Box(4, 210, 312, 22), text="3 updates available"
         )
         surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        status.draw(ctx)
+        status.draw(surface)
         fake_lcd.update(surface)
         snapshot()
 
@@ -139,47 +113,6 @@ class TestStatusLine:
             color=COLORS["text_error"],
         )
         surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        status.draw(ctx)
-        fake_lcd.update(surface)
-        snapshot()
-
-
-class TestTextWidget:
-    def test_simple_text(
-        self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
-    ) -> None:
-        text: TextWidget = TextWidget(
-            Box(10, 10, 300, 30), "Hello, pi-Stomp!"
-        )
-        surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        text.draw(ctx)
-        fake_lcd.update(surface)
-        snapshot()
-
-
-class TestPanel:
-    def test_titled_panel(
-        self, surface: pygame.Surface, fake_lcd: FakeLcd, snapshot: Callable[..., None]
-    ) -> None:
-        panel: Panel = Panel(Box(4, 4, 312, 232), title="System Info")
-        info: TextWidget = TextWidget(
-            Box(10, 30, 300, 20), "Kernel: 6.18.33"
-        )
-        panel.add_child(info)
-
-        surface.fill(COLORS["bg"])
-        ctx: PaintContext = PaintContext(
-            surface, Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-            Box(0, 0, LCD_WIDTH, LCD_HEIGHT),
-        )
-        panel.draw(ctx)
+        status.draw(surface)
         fake_lcd.update(surface)
         snapshot()

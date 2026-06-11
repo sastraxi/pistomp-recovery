@@ -4,7 +4,7 @@ from typing import Callable
 
 import pygame
 
-from pistomp_recovery.ui.colors import COLORS, Color, ColorName
+from pistomp_recovery.ui.colors import COLORS, ColorName
 from pistomp_recovery.ui.fonts import SIZES, get_font
 from pistomp_recovery.ui.widgets.misc import InputEvent
 
@@ -98,7 +98,7 @@ class ConfirmDialog:
             (confirm_rect, "Confirm", self._confirmed, confirm_color),
         ]
         for rect, label, is_sel, color_key in buttons:
-            bg: Color = (
+            bg = (
                 COLORS["selection_bg"] if is_sel else COLORS["progress_bg"]
             )
             pygame.draw.rect(self._surface, bg, rect, border_radius=4)

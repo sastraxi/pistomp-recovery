@@ -21,16 +21,22 @@ class SystemInfoScreen(Screen):
         self._surface.fill(COLORS["bg"])
 
         title_font = get_font(SIZES["heading"])
-        title_surf: pygame.Surface = title_font.render("System Info", True, COLORS["text_bright"])
+        title_surf: pygame.Surface = title_font.render(
+            "System Info", True, COLORS["text_bright"]
+        )
         self._surface.blit(title_surf, (10, 8))
 
         y: int = 36
         body_font = get_font(SIZES["body"])
         items: list[tuple[str, str]] = list(self._info.items())
-        for key, value in items[:8]:
+        for key, value in items[:10]:
             label: str = f"{key}: "
-            label_surf: pygame.Surface = body_font.render(label, True, COLORS["text_dim"])
-            value_surf: pygame.Surface = body_font.render(value, True, COLORS["text_bright"])
+            label_surf: pygame.Surface = body_font.render(
+                label, True, COLORS["text_dim"]
+            )
+            value_surf: pygame.Surface = body_font.render(
+                value, True, COLORS["text_bright"]
+            )
             self._surface.blit(label_surf, (10, y))
             self._surface.blit(value_surf, (10 + label_surf.get_width(), y))
             y += 20

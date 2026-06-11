@@ -18,7 +18,7 @@ class Screen:
     def handle_event(self, event: InputEvent) -> bool:
         return False
 
-    def set_back_callback(self, callback: Callable[[], None]) -> None:
+    def set_back_callback(self, callback: Callable[[], None] | None) -> None:
         self._on_back = callback
 
     def _go_back(self) -> None:
