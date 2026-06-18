@@ -175,7 +175,7 @@ class RecoveryAppCore:
 
     def _show_main_menu(self) -> None:
         services = self._backends.services
-        title: str = f"pi-Stomp! Recovery {services.recovery_sha()}"
+        title: str = f"Recovery! {services.recovery_sha()}"
         rows: list[Row] = [
             Row(
                 (

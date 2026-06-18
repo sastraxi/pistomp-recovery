@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pygame
@@ -35,11 +35,11 @@ from pistomp_recovery.constants import (
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
 from pistomp_recovery.facet import RollbackTarget, clear_facets, register_facet
 from pistomp_recovery.file_facet import FileFacet
-from pistomp_recovery.items import Item, PackageUpdate
-from pistomp_recovery.packages.packages import PackageFacet
+from pistomp_recovery.items import Action, Item, PackageUpdate
 from pistomp_recovery.pedalboards import PedalboardFacet
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.util import human_time
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class FakeInputBackend(InputBackend):
         self._input.inject_event(event)
 
 
-class EmulatorPackageFacet(PackageFacet):
+class EmulatorPackageFacet:
     """Package facet that simulates pacman with in-memory state."""
 
     name = "packages"
@@ -97,7 +97,6 @@ class EmulatorPackageFacet(PackageFacet):
         ]
 
     def init(self) -> None:
-        """No persistent storage needed in the emulator."""
         pass
 
     def _collect_versions(self) -> dict[str, str]:
@@ -106,22 +105,43 @@ class EmulatorPackageFacet(PackageFacet):
     def _read_stamp_file(self) -> dict[str, str]:
         return dict(self._stamped)
 
-    def _read_factory_file(self) -> dict[str, str]:
-        return dict(self._factory)
-
-    def _write_stamp_file(self) -> None:
-        self._stamped = dict(self._installed)
-
-    def _available_updates(self) -> list[tuple[str, str, str]]:
-        return [
-            (u.name, u.old_version, u.new_version)
-            for u in self._updates
-            if u.name in PISTOMP_PACKAGES
-        ]
-
     def pending_updates(self) -> list[PackageUpdate]:
         """Return the current list of pending package updates."""
         return list(self._updates)
+
+    def list_items(self) -> list[Item]:
+        self.init()
+        installed: dict[str, str] = self._collect_versions()
+        stamped: dict[str, str] = self._read_stamp_file()
+        items: list[Item] = []
+        for pkg in sorted(installed):
+            is_dirty: bool = installed.get(pkg) != stamped.get(pkg)
+            right: str = human_time(datetime.now(tz=timezone.utc)) if pkg in stamped else "factory"
+            items.append(
+                Item(
+                    name=pkg,
+                    label=f"{pkg} {installed[pkg]}" + (" *" if is_dirty else ""),
+                    dirty=is_dirty,
+                    right=right,
+                    actions=[
+                        Action(
+                            "Rollback to stamp",
+                            lambda n=pkg: self.rollback(n, "stamp"),
+                            confirm=f"Rollback {pkg}\nto last stamp?",
+                        ),
+                        Action(
+                            "Rollback to factory",
+                            lambda n=pkg: self.rollback(n, "factory"),
+                            confirm=f"Rollback {pkg}\nto factory?",
+                        ),
+                    ],
+                )
+            )
+        return items
+
+    def stamp(self) -> str | None:
+        self._stamped = dict(self._installed)
+        return None
 
     def rollback(self, name: str, target: RollbackTarget) -> None:
         version: str | None = None
@@ -147,16 +167,8 @@ class EmulatorPackageFacet(PackageFacet):
         self.stamp()
 
 
-@dataclass
-class StubItemState:
-    """Mutable stub state for one recoverable domain (packages only)."""
-
-    items: list[Item] = field(default_factory=lambda: [])
-    updates: list[PackageUpdate] = field(default_factory=lambda: [])
-
-
 class EmulatorDataBackend(DataBackend):
-    """In-memory data that uses real recovery facets operating against temporary data."""
+    """Data backend using real recovery facets (FileFacet, PedalboardFacet) on temp dirs."""
 
     def __init__(self) -> None:
         self._root: Path = Path(tempfile.mkdtemp(prefix="pistomp-recovery-emulator-"))
@@ -168,15 +180,11 @@ class EmulatorDataBackend(DataBackend):
         self._system_dir.mkdir()
         self._pedalboards_dir.mkdir()
 
-        # Seed config files.
+        # Write factory content.
         (self._config_dir / "default_config.yml").write_text("# factory config\n")
-        (self._config_dir / "settings.yml").write_text("# changed settings\n")
-
-        # Seed system files.
-        (self._system_dir / "config.txt").write_text("# changed config.txt\n")
+        (self._config_dir / "settings.yml").write_text("# factory settings\n")
+        (self._system_dir / "config.txt").write_text("# factory config.txt\n")
         (self._system_dir / "jackdrc").write_text("# factory jackdrc\n")
-
-        # Seed pedalboards.
         for name in (
             "AmpBud.pedalboard",
             "Beths.pedalboard",
@@ -184,42 +192,50 @@ class EmulatorDataBackend(DataBackend):
             "factory-defaults.pedalboard",
         ):
             (self._pedalboards_dir / name).mkdir()
-            (self._pedalboards_dir / name / "manifest.ttl").write_text(
-                "# stub pedalboard\n"
-            )
+            (self._pedalboards_dir / name / "manifest.ttl").write_text("# stub pedalboard\n")
 
-        # Build and register facets.
+        # Build real facets.
         clear_facets()
-        register_facet(
-            "config",
-            FileFacet(
-                name="config",
-                repo_dir=self._root / "config.git",
-                files=("default_config.yml", "settings.yml"),
-                source_resolver=lambda f: self._config_dir / f,
-                display_name_resolver=lambda f: f,
-            ),
+        self._config_facet = FileFacet(
+            name="config",
+            repo_dir=self._root / "config.git",
+            files=("default_config.yml", "settings.yml"),
+            source_resolver=lambda f: self._config_dir / f,
+            display_name_resolver=lambda f: f,
         )
-        register_facet(
-            "system",
-            FileFacet(
-                name="system",
-                repo_dir=self._root / "system.git",
-                files=("config.txt", "jackdrc"),
-                source_resolver=lambda f: self._system_dir / f,
-                display_name_resolver=lambda f: f,
-            ),
+        self._system_facet = FileFacet(
+            name="system",
+            repo_dir=self._root / "system.git",
+            files=("config.txt", "jackdrc"),
+            source_resolver=lambda f: self._system_dir / f,
+            display_name_resolver=lambda f: f,
         )
-        register_facet("pedalboards", PedalboardFacet(self._pedalboards_dir))
+        self._pedalboard_facet = PedalboardFacet(self._pedalboards_dir)
         self._package_facet = EmulatorPackageFacet()
+        register_facet("config", self._config_facet)
+        register_facet("system", self._system_facet)
+        register_facet("pedalboards", self._pedalboard_facet)
         register_facet("packages", self._package_facet)
 
-        self._stub_states: dict[str, StubItemState] = {
-            "packages": StubItemState(
-                items=[],
-                updates=list(self._package_facet.pending_updates()),
-            )
-        }
+        # Stamp config and system so checkpoint mode has a stamp to roll back to.
+        self._config_facet.stamp()
+        self._system_facet.stamp()
+
+        # Modify some pedalboards and stamp them, simulating pi-stomp having
+        # loaded them with user changes.  The stamp captures the modified state
+        # (different from factory), so rollback-to-stamp and rollback-to-factory
+        # are distinct operations.
+        ampbud_manifest = self._pedalboards_dir / "AmpBud.pedalboard" / "manifest.ttl"
+        ampbud_manifest.write_text("# AmpBud user preset\n")
+        self._pedalboard_facet.stamp_item("AmpBud.pedalboard")
+        beths_manifest = self._pedalboards_dir / "Beths.pedalboard" / "manifest.ttl"
+        beths_manifest.write_text("# Beths user preset\n")
+        self._pedalboard_facet.stamp_item("Beths.pedalboard")
+
+        # Now modify some live files to simulate a dirty / already-changed device.
+        (self._config_dir / "settings.yml").write_text("# changed settings\n")
+        (self._system_dir / "config.txt").write_text("# changed config.txt\n")
+        ampbud_manifest.write_text("# AmpBud further modified\n")
 
     def cleanup(self) -> None:
         shutil.rmtree(self._root, ignore_errors=True)
