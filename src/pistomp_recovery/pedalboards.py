@@ -6,21 +6,11 @@ from pathlib import Path
 
 from pistomp_recovery import git_util
 from pistomp_recovery.constants import PEDALBOARDS_DIR
+from pistomp_recovery.facet import RollbackTarget
 from pistomp_recovery.items import Action, Item
 from pistomp_recovery.util import human_time
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_stamp_time(tag: str) -> datetime | None:
-    parts: list[str] = tag.rsplit("/", 1)
-    if len(parts) < 2:
-        return None
-    ts_str: str = parts[-1]
-    try:
-        return datetime.strptime(ts_str, "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
 
 
 def _dir_mtime(path: Path) -> datetime:
@@ -32,122 +22,120 @@ def _dir_mtime(path: Path) -> datetime:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 
-def init_pedalboards(path: Path = Path(PEDALBOARDS_DIR)) -> None:
-    """Ensure pedalboards repo exists with factory and device branches."""
-    path.mkdir(parents=True, exist_ok=True)
-    if not git_util.is_repo(path):
-        git_util.init_repo(path)
-        git_util.add_and_commit(path, "initial pedalboards state")
-        git_util.create_factory_branch(path)
-    git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=path, check=False)
+class PedalboardFacet:
+    """Recovery facet for the pedalboards git repo."""
 
+    name = "pedalboards"
+    default_path: Path = Path(PEDALBOARDS_DIR)
 
-def list_pedalboard_items(path: Path = Path(PEDALBOARDS_DIR)) -> list[Item]:
-    """Return Item list for each .pedalboard directory."""
-    init_pedalboards(path)
-    stamped_items: list[Item] = []
-    unstamped_items: list[Item] = []
-    if not path.is_dir():
-        return []
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or self.default_path
 
-    for entry in sorted(path.iterdir()):
-        if not entry.is_dir() or not entry.name.endswith(".pedalboard"):
-            continue
-        is_dirty: bool = bool(
-            git_util.git(
-                "status", "--porcelain", "--", str(entry),
-                cwd=path, check=False,
-            ).strip()
-        )
-        stamp_tag: str | None = git_util.last_stamp(
-            path, f"pedalboard/{entry.name}"
-        )
-        stamp_time: datetime | None = _parse_stamp_time(stamp_tag) if stamp_tag else None
+    def init(self, path: Path | None = None) -> None:
+        target = path or self.path
+        target.mkdir(parents=True, exist_ok=True)
+        if not git_util.is_repo(target):
+            git_util.init_repo(target)
+            git_util.add_and_commit(target, "initial pedalboards state")
+            git_util.create_factory_branch(target)
+        git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=target, check=False)
 
-        if stamp_time:
-            right: str = human_time(stamp_time)
-        elif not is_dirty:
-            right = "factory"
+    def list_items(self, path: Path | None = None) -> list[Item]:
+        target = path or self.path
+        self.init(target)
+        stamped_items: list[Item] = []
+        unstamped_items: list[Item] = []
+        if not target.is_dir():
+            return []
+
+        for entry in sorted(target.iterdir()):
+            if not entry.is_dir() or not entry.name.endswith(".pedalboard"):
+                continue
+            is_dirty: bool = bool(
+                git_util.git(
+                    "status",
+                    "--porcelain",
+                    "--",
+                    str(entry),
+                    cwd=target,
+                    check=False,
+                ).strip()
+            )
+            stamp_time: datetime | None = git_util.last_commit_time_for_path(target, entry.name)
+            stamp_hash: str | None = git_util.last_commit_for_path(target, entry.name)
+
+            if stamp_time:
+                right: str = human_time(stamp_time)
+            elif not is_dirty:
+                right = "factory"
+            else:
+                right = "?"
+
+            label: str = entry.name
+            dirty: bool = is_dirty
+            actions: list[Action] = [
+                Action(
+                    "Rollback to stamp",
+                    lambda n=entry.name: self.rollback(n, "stamp"),
+                    confirm=f"Rollback {entry.name}\nto last stamp?",
+                ),
+                Action(
+                    "Rollback to factory",
+                    lambda n=entry.name: self.rollback(n, "factory"),
+                    confirm=f"Rollback {entry.name}\nto factory?",
+                ),
+            ]
+            if not stamp_hash:
+                actions = [a for a in actions if a.label != "Rollback to stamp"]
+
+            item = Item(
+                name=entry.name,
+                label=label,
+                dirty=dirty,
+                right=right,
+                actions=actions,
+            )
+            if stamp_hash is not None:
+                stamped_items.append(item)
+            else:
+                unstamped_items.append(item)
+
+        def _sort_key(i: Item) -> datetime:
+            t = git_util.last_commit_time_for_path(target, i.name)
+            return t or datetime.min.replace(tzinfo=timezone.utc)
+
+        stamped_items.sort(key=_sort_key, reverse=True)
+        unstamped_items.sort(key=lambda i: _dir_mtime(target / i.name), reverse=True)
+        result: list[Item] = []
+        result.extend(stamped_items)
+        result.extend(unstamped_items)
+        return result
+
+    def stamp(self, path: Path | None = None) -> str | None:
+        target = path or self.path
+        self.init(target)
+        return git_util.add_and_commit(target, "stamp pedalboards")
+
+    def stamp_item(self, name: str, path: Path | None = None) -> str | None:
+        """Commit a single pedalboard's current state."""
+        target = path or self.path
+        self.init(target)
+        item_path: Path = target / name
+        git_util.git("add", str(item_path), cwd=target, check=False)
+        return git_util.add_and_commit(target, f"stamp {name}")
+
+    def rollback(self, name: str, target: RollbackTarget, path: Path | None = None) -> None:
+        """Restore pedalboard to last stamp or factory state."""
+        repo = path or self.path
+        self.init(repo)
+        if target == "factory":
+            git_util.rollback_path(repo, name)
         else:
-            right = "?"
-
-        label: str = entry.name
-        dirty: bool = is_dirty
-        actions: list[Action] = [
-            Action(
-                "Rollback to stamp",
-                lambda n=entry.name: rollback_pedalboard(n, "stamp"),
-                confirm=f"Rollback {entry.name}\nto last stamp?",
-            ),
-            Action(
-                "Rollback to factory",
-                lambda n=entry.name: rollback_pedalboard(n, "factory"),
-                confirm=f"Rollback {entry.name}\nto factory?",
-            ),
-        ]
-        if not stamp_time:
-            actions = [a for a in actions if a.label != "Rollback to stamp"]
-
-        item = Item(
-            name=entry.name,
-            label=label,
-            dirty=dirty,
-            right=right,
-            actions=actions,
-        )
-        if stamp_time is not None:
-            stamped_items.append(item)
-        else:
-            unstamped_items.append(item)
-
-    stamped_items.sort(
-        key=lambda i: _parse_stamp_time(
-            git_util.last_stamp(path, f"pedalboard/{i.name}") or ""
-        )
-        or datetime.min.replace(tzinfo=timezone.utc),
-        reverse=True,
-    )
-    unstamped_items.sort(key=lambda i: _dir_mtime(path / i.name), reverse=True)
-    result: list[Item] = []
-    result.extend(stamped_items)
-    result.extend(unstamped_items)
-    return result
+            ref = git_util.last_commit_for_path(repo, name)
+            if ref:
+                git_util.rollback_path(repo, name, ref=ref)
 
 
-def stamp_pedalboard(name: str, path: Path = Path(PEDALBOARDS_DIR)) -> str:
-    """Create a git tag for this pedalboard's current state."""
-    init_pedalboards(path)
-    item_path: Path = path / name
-    git_util.git("add", str(item_path), cwd=path, check=False)
-    tag_name: str = git_util.stamp(path, f"pedalboard/{name}")
-    return tag_name
-
-
-def stamp_pedalboard_repo(path: Path = Path(PEDALBOARDS_DIR)) -> str:
-    """Create a holistic git tag for the entire pedalboards repo state."""
-    init_pedalboards(path)
-    git_util.add_and_commit(path, "stamp pedalboards")
-    tag_name: str = git_util.stamp(path, "pedalboards")
-    return tag_name
-
-
-def rollback_pedalboard(
-    name: str, target: str, path: Path = Path(PEDALBOARDS_DIR)
-) -> None:
-    """Restore pedalboard to last stamp or factory state."""
-    init_pedalboards(path)
-    item_path: Path = path / name
-    if target == "factory":
-        git_util.git(
-            "checkout", git_util.FACTORY_BRANCH, "--", str(item_path), cwd=path
-        )
-    else:
-        tag: str | None = git_util.last_stamp(path, f"pedalboard/{name}")
-        if tag:
-            git_util.git("checkout", tag, "--", str(item_path), cwd=path)
-    git_util.add_and_commit(path, f"rollback {name}")
-
-
-def factory_reset_pedalboard(name: str, path: Path = Path(PEDALBOARDS_DIR)) -> None:
-    """Same as rollback to factory — kept as explicit API for clarity."""
-    rollback_pedalboard(name, "factory", path)
+def make_pedalboard_facet(path: Path | None = None) -> PedalboardFacet:
+    """Return a fresh pedalboard facet for registration by an entry point."""
+    return PedalboardFacet(path)

@@ -34,9 +34,8 @@ Architecture
 CLI
 ---
 - `pistomp-recovery` — main service (started by systemd)
-- `pistomp-stamp stamp -f <facet>` — stamp a facet as known-good
-- `pistomp-stamp snapshot -f <facet>` — take a snapshot without stamping
-- `pistomp-stamp status -f <facet>` — show facet status
+- `pistomp-stamp stamp` — stamp all facets as known-good
+- `pistomp-stamp status` — show dirty state for all facets
 
 Development
 -----------

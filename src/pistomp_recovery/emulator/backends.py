@@ -1,31 +1,43 @@
 """Emulator backends for the recovery UI.
 
 These mirror the real device backends but use a pygame window, fake input,
-and in-memory stub data that mutates when the user triggers installs or
-rollbacks.  Each `EmulatorDataBackend` instance owns its own stub state so
-multiple emulator instances do not share global mutable data.
+and real recovery facets operating against temporary data. Each
+`EmulatorDataBackend` instance owns its own temp directories so multiple
+emulator instances do not share global mutable data.
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable
+from pathlib import Path
 
 import pygame
 
 from pistomp_recovery.backends import (
+    AppBackends,
     DataBackend,
     DisplayBackend,
     InputBackend,
     ProgressCallback,
     ServiceBackend,
 )
-from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH, domain_for_package
+from pistomp_recovery.constants import (
+    LCD_HEIGHT,
+    LCD_WIDTH,
+    PISTOMP_PACKAGES,
+    domain_for_package,
+)
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
-from pistomp_recovery.items import Action, Item, PackageUpdate
+from pistomp_recovery.facet import RollbackTarget, clear_facets, register_facet
+from pistomp_recovery.file_facet import FileFacet
+from pistomp_recovery.items import Item, PackageUpdate
+from pistomp_recovery.packages.packages import PackageFacet
+from pistomp_recovery.pedalboards import PedalboardFacet
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.widgets.misc import InputEvent
 
@@ -46,8 +58,6 @@ class PygameDisplayBackend(DisplayBackend):
         self._surface.fill((0, 0, 0))
 
     def update(self, surface: pygame.Surface) -> None:
-        # The core already draws into self._surface; the emulator window reads
-        # from the same reference, so no copy is needed here.
         if surface is not self._surface:
             self._surface.blit(surface, (0, 0))
 
@@ -72,124 +82,147 @@ class FakeInputBackend(InputBackend):
         self._input.inject_event(event)
 
 
-def _empty_items() -> list[Item]:
-    return []
+class EmulatorPackageFacet(PackageFacet):
+    """Package facet that simulates pacman with in-memory state."""
 
+    name = "packages"
 
-def _empty_updates() -> list[PackageUpdate]:
-    return []
+    def __init__(self) -> None:
+        self._installed: dict[str, str] = {pkg: "1.0.0" for pkg in PISTOMP_PACKAGES}
+        self._stamped: dict[str, str] = dict(self._installed)
+        self._factory: dict[str, str] = dict(self._installed)
+        self._updates: list[PackageUpdate] = [
+            PackageUpdate("jack2-pistomp", "1.0.0", "1.9.13"),
+            PackageUpdate("mod-ui", "1.0.0", "0.14.0"),
+        ]
+
+    def init(self) -> None:
+        """No persistent storage needed in the emulator."""
+        pass
+
+    def _collect_versions(self) -> dict[str, str]:
+        return dict(self._installed)
+
+    def _read_stamp_file(self) -> dict[str, str]:
+        return dict(self._stamped)
+
+    def _read_factory_file(self) -> dict[str, str]:
+        return dict(self._factory)
+
+    def _write_stamp_file(self) -> None:
+        self._stamped = dict(self._installed)
+
+    def _available_updates(self) -> list[tuple[str, str, str]]:
+        return [
+            (u.name, u.old_version, u.new_version)
+            for u in self._updates
+            if u.name in PISTOMP_PACKAGES
+        ]
+
+    def pending_updates(self) -> list[PackageUpdate]:
+        """Return the current list of pending package updates."""
+        return list(self._updates)
+
+    def rollback(self, name: str, target: RollbackTarget) -> None:
+        version: str | None = None
+        if target == "stamp":
+            version = self._stamped.get(name)
+        elif target == "factory":
+            version = self._factory.get(name)
+        if not version or version == "not-installed":
+            logger.warning("No version found for %s in target %s", name, target)
+            return
+        logger.info("Rolling back %s to %s (emulated)", name, version)
+        self._installed[name] = version
+
+    def remove_updates(self, packages: list[str]) -> None:
+        """Remove the given packages from the pending-update list."""
+        self._updates = [u for u in self._updates if u.name not in packages]
+
+    def install(self, pkg: str, new_version: str) -> None:
+        """Simulate installing a package."""
+        logger.info("Installing %s -> %s (emulated)", pkg, new_version)
+        self._installed[pkg] = new_version
+        self._updates = [u for u in self._updates if u.name != pkg]
+        self.stamp()
 
 
 @dataclass
 class StubItemState:
-    """Mutable stub state for one recoverable domain."""
+    """Mutable stub state for one recoverable domain (packages only)."""
 
-    items: list[Item] = field(default_factory=_empty_items)
-    updates: list[PackageUpdate] = field(default_factory=_empty_updates)
+    items: list[Item] = field(default_factory=lambda: [])
+    updates: list[PackageUpdate] = field(default_factory=lambda: [])
 
 
 class EmulatorDataBackend(DataBackend):
-    """In-memory data that behaves like pacman/git for the emulator."""
+    """In-memory data that uses real recovery facets operating against temporary data."""
 
     def __init__(self) -> None:
-        self._state: dict[str, StubItemState] = {
-            "pedalboards": StubItemState(items=self._make_pedalboard_items()),
-            "config": StubItemState(items=self._make_config_items()),
-            "system": StubItemState(items=self._make_system_items()),
-            "plugins": StubItemState(),
+        self._root: Path = Path(tempfile.mkdtemp(prefix="pistomp-recovery-emulator-"))
+        self._config_dir: Path = self._root / "config"
+        self._system_dir: Path = self._root / "system"
+        self._pedalboards_dir: Path = self._root / "pedalboards"
+
+        self._config_dir.mkdir()
+        self._system_dir.mkdir()
+        self._pedalboards_dir.mkdir()
+
+        # Seed config files.
+        (self._config_dir / "default_config.yml").write_text("# factory config\n")
+        (self._config_dir / "settings.yml").write_text("# changed settings\n")
+
+        # Seed system files.
+        (self._system_dir / "config.txt").write_text("# changed config.txt\n")
+        (self._system_dir / "jackdrc").write_text("# factory jackdrc\n")
+
+        # Seed pedalboards.
+        for name in (
+            "AmpBud.pedalboard",
+            "Beths.pedalboard",
+            "Carbon-Copy.pedalboard",
+            "factory-defaults.pedalboard",
+        ):
+            (self._pedalboards_dir / name).mkdir()
+            (self._pedalboards_dir / name / "manifest.ttl").write_text(
+                "# stub pedalboard\n"
+            )
+
+        # Build and register facets.
+        clear_facets()
+        register_facet(
+            "config",
+            FileFacet(
+                name="config",
+                repo_dir=self._root / "config.git",
+                files=("default_config.yml", "settings.yml"),
+                source_resolver=lambda f: self._config_dir / f,
+                display_name_resolver=lambda f: f,
+            ),
+        )
+        register_facet(
+            "system",
+            FileFacet(
+                name="system",
+                repo_dir=self._root / "system.git",
+                files=("config.txt", "jackdrc"),
+                source_resolver=lambda f: self._system_dir / f,
+                display_name_resolver=lambda f: f,
+            ),
+        )
+        register_facet("pedalboards", PedalboardFacet(self._pedalboards_dir))
+        self._package_facet = EmulatorPackageFacet()
+        register_facet("packages", self._package_facet)
+
+        self._stub_states: dict[str, StubItemState] = {
+            "packages": StubItemState(
+                items=[],
+                updates=list(self._package_facet.pending_updates()),
+            )
         }
-        self._state["system"].updates = [
-            PackageUpdate("jack2-pistomp", "1.9.12", "1.9.13"),
-            PackageUpdate("mod-ui", "0.13.0", "0.14.0"),
-        ]
 
-    @staticmethod
-    def _mark_clean(item: Item) -> None:
-        item.dirty = False
-        item.right = "✓ just now"
-
-    @staticmethod
-    def _mark_factory(item: Item) -> None:
-        item.dirty = False
-        item.right = "factory"
-        # Once an item is reset to factory it is the baseline; there is nothing
-        # left to roll back to, so remove all actions and hide it from the lists.
-        item.actions = []
-
-    @classmethod
-    def _stub_actions(cls, item: Item, *labels: str) -> list[Action]:
-        actions: list[Action] = []
-        for label in labels:
-            def make_cb(lbl: str = label, it: Item = item) -> Callable[[], None]:
-                if lbl == "Rollback to stamp":
-                    return lambda: cls._mark_clean(it)
-                if lbl == "Rollback to factory":
-                    return lambda: cls._mark_factory(it)
-                return lambda label=lbl: logger.info("%s (emulated)", label)
-
-            actions.append(Action(label, make_cb(), confirm=f"{label}?"))
-        return actions
-
-    def _make_pedalboard_items(self) -> list[Item]:
-        dirty_item = Item(
-            "AmpBud.pedalboard", "AmpBud.pedalboard", True, "2d ago", []
-        )
-        clean_item = Item(
-            "Beths.pedalboard", "Beths.pedalboard", False, "✓ 3d ago", []
-        )
-        unknown_item = Item(
-            "Carbon-Copy.pedalboard", "Carbon-Copy.pedalboard", True, "?", []
-        )
-        factory_item = Item(
-            "factory-defaults.pedalboard",
-            "factory-defaults.pedalboard",
-            False,
-            "factory",
-            [],
-        )
-        dirty_item.actions = self._stub_actions(
-            dirty_item, "Rollback to stamp", "Rollback to factory"
-        )
-        clean_item.actions = self._stub_actions(
-            clean_item, "Rollback to stamp", "Rollback to factory"
-        )
-        unknown_item.actions = self._stub_actions(
-            unknown_item, "Rollback to factory"
-        )
-        factory_item.actions = self._stub_actions(
-            factory_item, "Rollback to factory"
-        )
-        return [dirty_item, clean_item, unknown_item, factory_item]
-
-    def _make_config_items(self) -> list[Item]:
-        dirty_item = Item(
-            "settings.yml", "settings.yml", True, "2d ago", []
-        )
-        factory_item = Item(
-            "default_config.yml", "default_config.yml", False, "factory", []
-        )
-        dirty_item.actions = self._stub_actions(
-            dirty_item, "Rollback to stamp", "Rollback to factory"
-        )
-        factory_item.actions = self._stub_actions(
-            factory_item, "Rollback to factory"
-        )
-        return [dirty_item, factory_item]
-
-    def _make_system_items(self) -> list[Item]:
-        dirty_item = Item(
-            "config.txt", "config.txt", True, "5d ago", []
-        )
-        factory_item = Item(
-            "jackdrc", "jackdrc", False, "factory", []
-        )
-        dirty_item.actions = self._stub_actions(
-            dirty_item, "Rollback to stamp", "Rollback to factory"
-        )
-        factory_item.actions = self._stub_actions(
-            factory_item, "Rollback to factory"
-        )
-        return [dirty_item, factory_item]
+    def cleanup(self) -> None:
+        shutil.rmtree(self._root, ignore_errors=True)
 
     def domains(self) -> tuple[tuple[str, str], ...]:
         return (
@@ -202,14 +235,21 @@ class EmulatorDataBackend(DataBackend):
     def domain_items(self, mode: str, domain: str) -> list[Item]:
         if domain == "plugins":
             return []
-        state = self._state.get(domain)
-        if state is None:
-            return []
         if mode == "updates":
-            return self._update_items(state, domain)
+            return self._update_items(domain)
 
-        raw = list(state.items)
-        wanted = (
+        from pistomp_recovery.facet import all_facets
+
+        facet = all_facets().get(domain)
+        if facet is None:
+            return []
+        try:
+            raw: list[Item] = facet.list_items()
+        except Exception:
+            logger.debug("Could not list %s items", domain, exc_info=True)
+            return []
+
+        wanted: str = (
             "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
         )
         result: list[Item] = []
@@ -223,21 +263,19 @@ class EmulatorDataBackend(DataBackend):
         return result
 
     def available_updates(self, domain: str) -> list[PackageUpdate]:
-        state = self._state.get(domain)
-        if state is None:
-            return []
-        return [u for u in state.updates if domain_for_package(u.name) == domain]
-
-    def _update_items(self, state: StubItemState, domain: str) -> list[Item]:
-        scoped = [
-            u for u in state.updates if domain_for_package(u.name) == domain
+        return [
+            u for u in self._package_facet.pending_updates()
+            if domain_for_package(u.name) == domain
         ]
+
+    def _update_items(self, domain: str) -> list[Item]:
+        scoped = self.available_updates(domain)
         return [
             Item(
                 u.name,
                 f"{u.name} {u.old_version}",
                 False,
-                f"↑{u.new_version}",
+                f"\u2191{u.new_version}",
                 [],
             )
             for u in scoped
@@ -269,15 +307,20 @@ class EmulatorDataBackend(DataBackend):
                     False,
                 )
                 time.sleep(0.15)
-            # Remove installed packages from every domain's update list.
-            for state in self._state.values():
-                state.updates[:] = [
-                    u for u in state.updates if u.name not in packages
-                ]
+
+            for pkg in packages:
+                update = next(
+                    (u for u in self._package_facet.pending_updates() if u.name == pkg), None
+                )
+                if update:
+                    self._package_facet.install(pkg, update.new_version)
+                else:
+                    logger.info("No pending update for %s", pkg)
+
             progress(
                 "Update complete",
                 1.0,
-                "Done. Exit (►) to restart pi-Stomp.",
+                "Done. Exit (\u25b6) to restart pi-Stomp.",
                 True,
             )
 
@@ -341,3 +384,13 @@ class EmulatorServiceBackend(ServiceBackend):
                 "mod-ala-pi-stomp": "inactive",
             },
         )
+
+
+def make_emulator_backends(boot_mode: BootMode = BootMode.USER_RECOVERY) -> AppBackends:
+    """Create emulator backends wired to real recovery facets on temp data."""
+    return AppBackends(
+        display=PygameDisplayBackend(),
+        input=FakeInputBackend(FakeEncoderInput()),
+        data=EmulatorDataBackend(),
+        services=EmulatorServiceBackend(boot_mode),
+    )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pistomp_recovery.constants import DEVICE_BRANCH, FACTORY_BRANCH
@@ -37,64 +38,29 @@ def init_repo(path: Path) -> None:
         git("config", "user.name", "pistomp-recovery", cwd=path)
 
 
-def add_and_commit(path: Path, message: str) -> None:
+def add_and_commit(path: Path, message: str) -> str | None:
+    """Commit all changes. Returns the commit hash, or None if nothing changed."""
     git("add", "-A", cwd=path)
     status: str = git("status", "--porcelain", cwd=path, check=False)
     if not status:
         logger.debug("No changes to commit in %s", path)
-        return
+        return None
     git("commit", "-m", message, cwd=path)
+    return git("rev-parse", "HEAD", cwd=path)
 
 
-def stamp(
-    path: Path,
-    tag_prefix: str,
-    message: str | None = None,
-) -> str:
-    ts: str = _timestamp()
-    tag_name: str = f"stamp/{tag_prefix}/{ts}"
-    add_and_commit(path, message or f"stamp {tag_prefix} {ts}")
-    git("tag", tag_name, cwd=path)
-    return tag_name
-
-
-def rollback(path: Path, tag: str | None = None, branch: str = FACTORY_BRANCH) -> None:
-    target_ref: str = tag if tag else branch
+def rollback(path: Path, branch: str = FACTORY_BRANCH, ref: str | None = None) -> None:
+    target_ref: str = ref if ref else branch
     git("checkout", DEVICE_BRANCH, cwd=path)
     git("checkout", target_ref, "--", ".", cwd=path)
     add_and_commit(path, f"rollback to {target_ref}")
 
 
-def factory_reset(path: Path) -> None:
-    git("checkout", FACTORY_BRANCH, "--", ".", cwd=path)
-    add_and_commit(path, "factory reset")
-
-
-def last_stamp(path: Path, tag_prefix: str) -> str | None:
-    tags: str = git("tag", "-l", f"stamp/{tag_prefix}/*", cwd=path, check=False)
-    if not tags:
-        return None
-    tag_list: list[str] = tags.strip().split("\n") if tags.strip() else []
-    return tag_list[-1] if tag_list else None
-
-
-def all_stamps(path: Path, tag_prefix: str) -> list[str]:
-    tags: str = git("tag", "-l", f"stamp/{tag_prefix}/*", cwd=path, check=False)
-    if not tags:
-        return []
-    return [t for t in tags.strip().split("\n") if t.strip()]
-
-
-def current_state(path: Path) -> str | None:
-    try:
-        return git("rev-parse", "HEAD", cwd=path)
-    except GitError:
-        return None
-
-
-def diff_summary(path: Path) -> str:
-    status: str = git("status", "--porcelain", cwd=path, check=False)
-    return status
+def rollback_path(path: Path, rel_path: str, ref: str | None = None) -> None:
+    """Restore a single path from factory branch (or a specific ref)."""
+    source_ref: str = ref if ref else FACTORY_BRANCH
+    git("checkout", source_ref, "--", rel_path, cwd=path)
+    add_and_commit(path, f"rollback {rel_path} to {source_ref}")
 
 
 def create_factory_branch(path: Path) -> None:
@@ -107,6 +73,41 @@ def create_factory_branch(path: Path) -> None:
     git("checkout", DEVICE_BRANCH, cwd=path)
 
 
-def _timestamp() -> str:
-    import datetime
-    return datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+def branch_exists(path: Path, branch: str) -> bool:
+    """Return True if the named branch exists in the repo."""
+    result: str = git("branch", "--list", branch, cwd=path, check=False)
+    return bool(result.strip())
+
+
+def last_commit_time(path: Path) -> datetime | None:
+    """Return the commit time of HEAD, or None if no commits exist."""
+    result: str = git("log", "-1", "--format=%ct", cwd=path, check=False)
+    if not result:
+        return None
+    try:
+        return datetime.fromtimestamp(int(result), tz=timezone.utc)
+    except (ValueError, OSError):
+        return None
+
+
+def last_commit_time_for_path(path: Path, rel_path: str) -> datetime | None:
+    """Return the commit time of the last commit that touched ``rel_path``."""
+    result: str = git(
+        "log", "-1", "--format=%ct", "--", rel_path, cwd=path, check=False
+    )
+    if not result:
+        return None
+    try:
+        return datetime.fromtimestamp(int(result), tz=timezone.utc)
+    except (ValueError, OSError):
+        return None
+
+
+def last_commit_for_path(path: Path, rel_path: str) -> str | None:
+    """Return the commit hash of the last commit that touched ``rel_path``."""
+    result: str = git(
+        "log", "-1", "--format=%H", "--", rel_path, cwd=path, check=False
+    )
+    if not result:
+        return None
+    return result

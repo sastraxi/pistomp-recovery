@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Callable
 
 import pygame
 
@@ -21,15 +20,14 @@ from pistomp_recovery.backends import (
     ProgressCallback,
     ServiceBackend,
 )
-from pistomp_recovery.config import list_config_items
 from pistomp_recovery.constants import domain_for_package
+from pistomp_recovery.facet import all_facets, register_default_facets
 from pistomp_recovery.hardware.encoder import EncoderInput
 from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.items import Item, PackageUpdate
 from pistomp_recovery.packages import get_available_updates
 from pistomp_recovery.packages import installer as package_installer
 from pistomp_recovery.packages.packages import stamp_packages
-from pistomp_recovery.pedalboards import list_pedalboard_items
 from pistomp_recovery.service import (
     CrashInfo,
     diagnose_crash,
@@ -39,7 +37,6 @@ from pistomp_recovery.service import (
     start_main_app,
     stop_main_app,
 )
-from pistomp_recovery.system import list_system_items
 from pistomp_recovery.ui.display import Display
 from pistomp_recovery.ui.input import InputManager
 from pistomp_recovery.ui.widgets.misc import InputEvent
@@ -101,23 +98,16 @@ class RealDataBackend(DataBackend):
             # The core synthesizes update actions; backend just lists candidates.
             return self._update_items(domain)
 
-        loaders: dict[str, Callable[[], list[Item]]] = {
-            "pedalboards": list_pedalboard_items,
-            "config": list_config_items,
-            "system": list_system_items,
-        }
-        loader = loaders.get(domain)
-        if loader is None:
+        facet = all_facets().get(domain)
+        if facet is None:
             return []
         try:
-            raw: list[Item] = loader()
+            raw: list[Item] = facet.list_items()
         except Exception:
             logger.debug("Could not list %s items", domain, exc_info=True)
             return []
 
-        wanted: str = (
-            "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
-        )
+        wanted: str = "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
         result: list[Item] = []
         for it in raw:
             actions = [a for a in it.actions if a.label == wanted]
@@ -162,22 +152,17 @@ class RealDataBackend(DataBackend):
         result: list[bool] = []
 
         def _run() -> None:
-            progress("Downloading...", 0.0,
-                     f"Downloading {len(packages)} package(s)...", False)
+            progress("Downloading...", 0.0, f"Downloading {len(packages)} package(s)...", False)
             if not package_installer.download_packages(packages):
-                progress("Download failed", 0.0,
-                         "Download failed. Click to continue.", True)
+                progress("Download failed", 0.0, "Download failed. Click to continue.", True)
                 result.append(False)
                 return
 
-            progress("Installing...", 0.5,
-                     f"Installing {len(packages)} package(s)...", False)
+            progress("Installing...", 0.5, f"Installing {len(packages)} package(s)...", False)
             if not package_installer.install_packages(packages):
-                progress("Rolling back...", 0.5,
-                         "Install failed, rolling back...", False)
+                progress("Rolling back...", 0.5, "Install failed, rolling back...", False)
                 package_installer.install_from_cache(packages)
-                progress("Install failed", 0.0,
-                         "Install failed. Click to continue.", True)
+                progress("Install failed", 0.0, "Install failed. Click to continue.", True)
                 result.append(False)
                 return
 
@@ -187,8 +172,7 @@ class RealDataBackend(DataBackend):
             except Exception:
                 logger.exception("Stamp after update failed")
 
-            progress("Update complete", 1.0,
-                     "Done. Exit (►) to restart pi-Stomp.", True)
+            progress("Update complete", 1.0, "Done. Exit (►) to restart pi-Stomp.", True)
             result.append(True)
 
         threading.Thread(target=_run, daemon=True).start()
@@ -228,6 +212,7 @@ class RealServiceBackend(ServiceBackend):
 
 
 def make_real_backends() -> AppBackends:
+    register_default_facets()
     return AppBackends(
         display=LcdDisplayBackend(),
         input=GpioInputBackend(),

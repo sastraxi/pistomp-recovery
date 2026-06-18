@@ -1,74 +1,70 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
-from pistomp_recovery.packages import stamp_packages
-from pistomp_recovery.pedalboards import init_pedalboards, stamp_pedalboard_repo
+from pistomp_recovery.facet import all_facets
+
+FACET_ORDER: tuple[str, ...] = ("pedalboards", "packages", "config", "system")
 
 
 def cmd_stamp(args: argparse.Namespace) -> None:
-    """Stamp current state as known-good."""
-    from pathlib import Path
+    """Stamp current state as known-good across all facets.
 
-    from pistomp_recovery.constants import PEDALBOARDS_DIR
-
-    init_pedalboards(Path(PEDALBOARDS_DIR))
-    tag: str = stamp_pedalboard_repo(Path(PEDALBOARDS_DIR))
-    stamp_packages()
-    print(f"stamped pedalboards: {tag}")
-    print("stamped packages")
+    When ``pedalboard_bundle`` is given, the pedalboards facet stamps only
+    that single pedalboard so per-pedalboard timestamps are preserved.
+    Other facets are always stamped globally.
+    """
+    facets = all_facets()
+    for name in FACET_ORDER:
+        facet = facets.get(name)
+        if facet is None:
+            continue
+        if name == "pedalboards" and args.pedalboard_bundle:
+            name_arg = Path(args.pedalboard_bundle).name
+            tag: str | None = facet.stamp_item(name_arg)  # type: ignore[union-attr]
+            if tag:
+                print(f"stamped {name}/{name_arg}: {tag[:8]}")
+            else:
+                print(f"stamped {name}/{name_arg}")
+        else:
+            tag = facet.stamp()
+            if tag:
+                print(f"stamped {name}: {tag[:8]}")
+            else:
+                print(f"stamped {name}")
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    """Show dirty state."""
-    from pathlib import Path
-
-    from pistomp_recovery.config import list_config_items
-    from pistomp_recovery.constants import PEDALBOARDS_DIR
-    from pistomp_recovery.packages import list_package_items
-    from pistomp_recovery.pedalboards import init_pedalboards, list_pedalboard_items
-    from pistomp_recovery.system import list_system_items
-
-    init_pedalboards(Path(PEDALBOARDS_DIR))
-    pb_items = list_pedalboard_items(Path(PEDALBOARDS_DIR))
-    if pb_items:
-        print("pedalboards:")
-        for item in pb_items:
-            marker: str = " *" if item.dirty else ""
-            print(f"  {item.label}{marker}  {item.right}")
-    else:
-        print("pedalboards: clean")
-
-    pkg_items = list_package_items()
-    if any(i.dirty for i in pkg_items):
-        print("packages:")
-        for item in pkg_items:
-            marker = " *" if item.dirty else ""
-            print(f"  {item.label}{marker}  {item.right}")
-    else:
-        print("packages: clean")
-
-    cfg = list_config_items()
-    if cfg and cfg[0].dirty:
-        print(f"config: {cfg[0].label}  {cfg[0].right}")
-    else:
-        print("config: clean")
-
-    sys_items = list_system_items()
-    if sys_items and sys_items[0].dirty:
-        print(f"system: {sys_items[0].label}  {sys_items[0].right}")
-    else:
-        print("system: clean")
+    """Show dirty state across all facets."""
+    facets = all_facets()
+    for name in FACET_ORDER:
+        facet = facets.get(name)
+        if facet is None:
+            continue
+        items = facet.list_items()
+        if any(i.dirty for i in items):
+            print(f"{name}:")
+            for item in items:
+                marker = " *" if item.dirty else ""
+                print(f"  {item.label}{marker}  {item.right}")
+        else:
+            print(f"{name}: clean")
 
 
 def main(args: list[str] | None = None) -> None:
-    parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="pistomp stamp utility"
-    )
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(description="pistomp stamp utility")
     parser.add_argument(
         "command",
         choices=["stamp", "status"],
         help="Action to perform",
+    )
+    parser.add_argument(
+        "pedalboard_bundle",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Pedalboard bundle path to stamp individually (preserves per-pedalboard timestamps)",
     )
 
     parsed: argparse.Namespace = parser.parse_args(args)

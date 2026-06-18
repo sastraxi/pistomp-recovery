@@ -27,9 +27,6 @@ class FakeEncoderInput:
             return self._direction_queue.pop(0)
         return 0
 
-    def inject_step(self, direction: int) -> None:
-        self._direction_queue.append(direction)
-
 
 class FakeInputManager:
     """InputManager backed by FakeEncoderInput, with click injection."""

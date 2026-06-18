@@ -27,11 +27,3 @@ def init(headless: bool = True) -> None:
         pygame.init()
         _freetype.init()  # type: ignore[union-attr]
         _initialized = True
-
-
-def freetype():
-    """Return the pygame._freetype module, initializing if needed."""
-    init()
-    import pygame._freetype as _freetype
-
-    return _freetype

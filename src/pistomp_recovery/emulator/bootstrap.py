@@ -19,13 +19,7 @@ import pygame
 
 from pistomp_recovery.app import RecoveryAppCore
 from pistomp_recovery.backends import AppBackends
-from pistomp_recovery.emulator.backends import (
-    EmulatorDataBackend,
-    EmulatorServiceBackend,
-    FakeInputBackend,
-    PygameDisplayBackend,
-)
-from pistomp_recovery.emulator.controls import FakeEncoderInput
+from pistomp_recovery.emulator.backends import FakeInputBackend, make_emulator_backends
 from pistomp_recovery.emulator.window import EmulatorWindow
 from pistomp_recovery.service import BootMode
 
@@ -36,27 +30,17 @@ class EmulatorApp:
     """Thin wrapper around `RecoveryAppCore` with a pygame window."""
 
     def __init__(self, boot_mode: BootMode = BootMode.USER_RECOVERY) -> None:
-        self._display: PygameDisplayBackend = PygameDisplayBackend()
-        self._input: FakeInputBackend = FakeInputBackend(FakeEncoderInput())
-        self._data: EmulatorDataBackend = EmulatorDataBackend()
-        self._services: EmulatorServiceBackend = EmulatorServiceBackend(boot_mode)
-        self._core: RecoveryAppCore = RecoveryAppCore(
-            AppBackends(
-                display=self._display,
-                input=self._input,
-                data=self._data,
-                services=self._services,
-            ),
-            boot_mode,
-        )
+        self._backends: AppBackends = make_emulator_backends(boot_mode)
+        self._core: RecoveryAppCore = RecoveryAppCore(self._backends, boot_mode)
         self._window: EmulatorWindow | None = None
 
     def init(self) -> None:
+        assert isinstance(self._backends.input, FakeInputBackend)
         pygame.init()
-        self._display.init()
+        self._backends.display.init()
         self._window = EmulatorWindow(
             lcd_surface=self._core.surface,
-            send_event=self._input.inject_event,
+            send_event=self._backends.input.inject_event,
         )
         self._core.init()
         logger.info(
@@ -80,10 +64,8 @@ def main() -> None:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description="pistomp-recovery emulator"
     )
-    parser.add_argument("--log", default="INFO",
-                        choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    parser.add_argument("--force-crash", action="store_true",
-                        help="Start in crash recovery mode")
+    parser.add_argument("--log", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--force-crash", action="store_true", help="Start in crash recovery mode")
     args: argparse.Namespace = parser.parse_args()
 
     logging.basicConfig(
@@ -91,9 +73,7 @@ def main() -> None:
         format="%(levelname)s:%(name)s:%(message)s",
     )
 
-    boot_mode: BootMode = (
-        BootMode.CRASH_RECOVERY if args.force_crash else BootMode.USER_RECOVERY
-    )
+    boot_mode: BootMode = BootMode.CRASH_RECOVERY if args.force_crash else BootMode.USER_RECOVERY
     app: EmulatorApp = EmulatorApp(boot_mode)
 
     try:
