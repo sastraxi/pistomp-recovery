@@ -244,6 +244,7 @@ class EmulatorDataBackend(DataBackend):
         self._pedalboard_facet.stamp_item("Beths.pedalboard")
 
         # Now modify some live files to simulate a dirty / already-changed device.
+        (self._config_dir / "default_config.yml").write_text("# changed default config\n")
         (self._config_dir / "settings.yml").write_text("# changed settings\n")
         (self._system_dir / "config.txt").write_text("# changed config.txt\n")
         ampbud_manifest.write_text("# AmpBud further modified\n")

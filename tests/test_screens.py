@@ -61,8 +61,8 @@ def test_domain_screen_refreshes_after_successful_action(
     # domain is now empty, the app pops back to the menu below it.
     assert fake_data._installed == [["a"]]  # type: ignore[attr-defined]
     assert harness.row_labels() == [
-        "Jack",
-        "MOD",
+        "Restart Jack",
+        "Restart MOD",
         "Reset to Checkpoint",
         "Factory Reset",
         "Updates",
@@ -86,7 +86,7 @@ def test_main_menu_renders(recovery_app: AppHarness, snapshot: Callable[..., Non
 
     labels = harness.nav_labels()
     assert labels[0] == ICON_EXIT  # header icon is exit on the root menu
-    assert "Jack" in labels and "MOD" in labels
+    assert "Restart Jack" in labels and "Restart MOD" in labels
     assert "Reset to Checkpoint" in labels
     assert "Reboot" in labels and "Power Off" in labels
 
@@ -371,7 +371,7 @@ def test_restart_jack_success(
     harness = recovery_app
     harness.inject()
 
-    harness.select("Jack")
+    harness.select("Restart Jack")
 
     # Wait for the restart thread to finish (fake backend is instant).
     _wait_for_restart(harness)
@@ -418,7 +418,7 @@ def test_restart_jack_failure(
     harness = AppHarness(app, fake_display)
     harness.inject()
 
-    harness.select("Jack")
+    harness.select("Restart Jack")
 
     # Wait for thread to push the failure screen.
     deadline = time.monotonic() + 2.0

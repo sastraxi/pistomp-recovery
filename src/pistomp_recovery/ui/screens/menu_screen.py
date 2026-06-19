@@ -241,8 +241,9 @@ class MenuScreen(Screen):
             x: int = cw
 
             if row.prefix:
+                prefix_color = COLORS["disabled"] if row.separator else COLORS["text"]
                 surf: pygame.Surface = get_font().render(
-                    row.prefix, True, COLORS["text"]
+                    row.prefix, True, prefix_color
                 )
                 self._surface.blit(surf, (x, y + TEXT_DY))
                 x += text_width(row.prefix)

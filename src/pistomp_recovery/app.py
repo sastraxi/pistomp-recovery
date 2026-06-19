@@ -183,16 +183,20 @@ class RecoveryAppCore:
             Row(
                 (
                     Target(
-                        "Jack",
+                        "Restart Jack",
                         lambda: self._restart_service("Jack", ["jack"], services.restart_jack),
                     ),
+                )
+            ),
+            Row(
+                (
                     Target(
-                        "MOD",
+                        "Restart MOD",
                         lambda: self._restart_service("MOD", ["mod-host"], services.restart_mod),
                     ),
-                ),
-                prefix="Restart ",
+                )
             ),
+            Row(prefix="---", separator=True),
             Row(
                 (
                     Target(
@@ -217,12 +221,9 @@ class RecoveryAppCore:
                     ),
                 )
             ),
-            Row(
-                (
-                    Target("Reboot", services.reboot, confirm="Reboot now?"),
-                    Target("Power Off", services.power_off, confirm="Power off now?"),
-                )
-            ),
+            Row(prefix="---", separator=True),
+            Row((Target("Reboot", services.reboot, confirm="Reboot now?"),)),
+            Row((Target("Power Off", services.power_off, confirm="Power off now?"),)),
         ]
         self._push_menu(title, rows, back=False)
 

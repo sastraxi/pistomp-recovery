@@ -44,11 +44,14 @@ class Row:
     ``RESTART [JACK] | [MOD]`` is ``Row((Target("JACK", ...),
     Target("MOD", ...)), prefix="RESTART ")``. A plain single-action line is
     just ``Row((Target(...),))``. ``right`` is an optional right-aligned badge.
+
+    ``separator=True`` renders the row dimmed and skips it during navigation.
     """
 
     targets: tuple[Target, ...] = field(default_factory=tuple)
     prefix: str = ""
     right: str = ""
+    separator: bool = False
 
 
 @dataclass

@@ -7,8 +7,8 @@ from pistomp_recovery.ui.colors import COLORS
 from pistomp_recovery.ui.fonts import TEXT_DY, cell_size, get_font, text_width
 
 #: Glyphs for the header's top-right action icon (CP437-native).
-ICON_BACK: str = "←"   # left arrow -> previous menu
-ICON_EXIT: str = "►"   # play triangle -> resume pi-Stomp
+ICON_BACK: str = "← Back"
+ICON_EXIT: str = "♫ Exit"
 
 
 def header_height() -> int:
