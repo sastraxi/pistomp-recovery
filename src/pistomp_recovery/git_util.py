@@ -45,7 +45,16 @@ def add_and_commit(path: Path, message: str) -> str | None:
     if not status:
         logger.debug("No changes to commit in %s", path)
         return None
-    git("commit", "-m", message, cwd=path)
+    git(
+        "-c",
+        "user.email=recovery@pistomp.local",
+        "-c",
+        "user.name=pistomp-recovery",
+        "commit",
+        "-m",
+        message,
+        cwd=path,
+    )
     return git("rev-parse", "HEAD", cwd=path)
 
 
@@ -92,9 +101,7 @@ def last_commit_time(path: Path) -> datetime | None:
 
 def last_commit_time_for_path(path: Path, rel_path: str) -> datetime | None:
     """Return the commit time of the last commit that touched ``rel_path``."""
-    result: str = git(
-        "log", "-1", "--format=%ct", "--", rel_path, cwd=path, check=False
-    )
+    result: str = git("log", "-1", "--format=%ct", "--", rel_path, cwd=path, check=False)
     if not result:
         return None
     try:
@@ -105,9 +112,7 @@ def last_commit_time_for_path(path: Path, rel_path: str) -> datetime | None:
 
 def last_commit_for_path(path: Path, rel_path: str) -> str | None:
     """Return the commit hash of the last commit that touched ``rel_path``."""
-    result: str = git(
-        "log", "-1", "--format=%H", "--", rel_path, cwd=path, check=False
-    )
+    result: str = git("log", "-1", "--format=%H", "--", rel_path, cwd=path, check=False)
     if not result:
         return None
     return result
