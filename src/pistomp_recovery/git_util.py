@@ -142,6 +142,33 @@ def branch_exists(path: Path, branch: str) -> bool:
     return bool(result.strip())
 
 
+def matches_ref(path: Path, rel_path: str, ref: str) -> bool:
+    """Return True if HEAD's content for *rel_path* equals *ref*'s content.
+
+    ``git diff --quiet`` exits 0 when there are no differences.
+    """
+    result: subprocess.CompletedProcess[str] = subprocess.run(
+        ["git", "diff", "--quiet", ref, "HEAD", "--", rel_path],
+        cwd=str(path),
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def is_at_factory(path: Path, rel_path: str) -> bool:
+    """Return True if HEAD's content for *rel_path* matches its first commit.
+
+    This mirrors ``rollback_path``'s factory ref: the first commit that
+    touched the path, NOT the ``factory`` branch (which may not exist or may
+    point elsewhere). Returns False if the path was never committed.
+    """
+    first: str | None = _first_commit_for_path(path, rel_path)
+    if first is None:
+        return False
+    return matches_ref(path, rel_path, first)
+
+
 def last_commit_time(path: Path) -> datetime | None:
     """Return the commit time of HEAD, or None if no commits exist."""
     result: str = git("log", "-1", "--format=%ct", cwd=path, check=False)

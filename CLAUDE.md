@@ -115,7 +115,12 @@ The single mental model: **`RecoveryAppCore` (`app.py`) is UI-only and depends o
 
 **Menus.** There is one screen type, `MenuScreen` (states `LIST | CONFIRM | PROGRESS`); `CrashScreen` subclasses it. You build menus out of `Row`/`Target` (`items.py`) and push them — there is no detail state and no other screen class. Rules that aren't obvious from the types: selection is reverse video so labels carry **no literal brackets**; a `Target.confirm=` string makes `MenuScreen` pop the modal for you; a multi-action item pushes a child menu; capture state in closures, never via callback args.
 
-**Facets** (`facet.py`, `file_facet.py`) are the recoverable domains — `config`, `system`, `pedalboards`, `packages` — behind a common protocol (`list_items`/`stamp`/`rollback`), registered by `register_default_facets()`. The model: each keeps a git repo with a `factory` branch (first snapshot) and a `device` branch; **stamp** = mark current state known-good (pi-Stomp runs `pistomp-stamp` on a good pedalboard load); rollback checks out a ref and copies files back to their live paths. The root menu's Checkpoint/Factory/Updates rows feed one shared picker parameterised by `mode`; package updates are pacman-only and scoped to a domain via `PACKAGE_DOMAIN` in `constants.py`.
+**Facets** (`facet.py`, `file_facet.py`, `pedalboards.py`) are the recoverable domains — `config`, `system`, `pedalboards`, `packages` — behind a common protocol (`list_items`/`stamp`/`rollback`), registered by `register_default_facets()`. **stamp** = mark current state known-good (pi-Stomp runs `pistomp-stamp` on a good pedalboard load). Two distinct git models:
+
+- **FileFacet** (`config`, `system`): copy-into-repo + copy-back-on-rollback. `factory` branch holds the first snapshot; factory rollback = `git checkout factory -- <file>` then copy repo→live; stamp rollback = `git checkout HEAD -- <file>` then copy repo→live.
+- **PedalboardFacet** (`pedalboards`): in-place tracking — the repo IS the live `.pedalboards/` dir. No copy-back step. Factory rollback restores from the **first commit that touched the path** (not the `factory` branch); stamp rollback restores from the **last commit that touched the path**. The `factory` branch exists but is unused by rollback.
+
+Both use a `device` working branch. The root menu's Checkpoint/Factory/Updates rows feed one shared picker parameterised by `mode`; package updates are pacman-only and scoped to a domain via `PACKAGE_DOMAIN` in `constants.py`.
 
 **Rendering** is deterministic for byte-for-byte snapshot tests: a 320×240 surface (40×15 grid), one non-antialiased 8×16 bitmap font at one size, emphasis via reverse video only. Always render through `SafeFont`/`get_font()` (never `pygame.font.Font` — it has a circular import on Python 3.14). Widgets are plain `draw(surface)` renderers; there is no widget hierarchy.
 
@@ -132,7 +137,7 @@ The single mental model: **`RecoveryAppCore` (`app.py`) is UI-only and depends o
 **Facets & domains**
 - `facet.py` — `Facet` protocol + registry (`register_default_facets`, `all_facets`)
 - `file_facet.py` — `FileFacet`: copy-into-repo + commit/checkout model for config & system
-- `pedalboards.py` — `PedalboardFacet`: per-bundle git scoping
+- `pedalboards.py` — `PedalboardFacet`: in-place tracking, first-commit-for-path factory rollback
 - `config.py`, `system.py` — `make_*_facet()` factories (which files each tracks)
 - `packages/installer.py` — pacman wrapper (download/install/rollback-from-cache)
 - `packages/packages.py` — package facet, version tracking, `stamp_packages`

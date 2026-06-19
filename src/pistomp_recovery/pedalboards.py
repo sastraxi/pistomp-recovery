@@ -99,11 +99,14 @@ class PedalboardFacet:
             )
             stamp_time: datetime | None = git_util.last_commit_time_for_path(target, entry.name)
             stamp_hash: str | None = git_util.last_commit_for_path(target, entry.name)
+            is_factory: bool = git_util.is_at_factory(target, entry.name)
 
-            if stamp_time:
-                right: str = human_time(stamp_time)
-            elif not is_dirty:
+            if is_dirty:
+                right: str = "?"
+            elif is_factory:
                 right = "factory"
+            elif stamp_time:
+                right = human_time(stamp_time)
             else:
                 right = "?"
 
@@ -131,20 +134,20 @@ class PedalboardFacet:
                 right=right,
                 actions=actions,
             )
-            if stamp_hash is not None:
+            if stamp_hash is not None and not is_factory:
                 stamped_items.append(item)
             else:
                 unstamped_items.append(item)
 
-        def _sort_key(i: Item) -> datetime:
-            t = git_util.last_commit_time_for_path(target, i.name)
-            return t or datetime.min.replace(tzinfo=timezone.utc)
-
-        stamped_items.sort(key=_sort_key, reverse=True)
+        stamped_items.sort(key=lambda i: _dir_mtime(target / i.name), reverse=True)
         unstamped_items.sort(key=lambda i: _dir_mtime(target / i.name), reverse=True)
+        factory_items: list[Item] = [i for i in unstamped_items if not i.dirty]
+        unstamped_items = [i for i in unstamped_items if i.dirty]
+        factory_items.sort(key=lambda i: i.name)
         result: list[Item] = []
-        result.extend(stamped_items)
         result.extend(unstamped_items)
+        result.extend(stamped_items)
+        result.extend(factory_items)
         return result
 
     def stamp(self, path: Path | None = None) -> str | None:
