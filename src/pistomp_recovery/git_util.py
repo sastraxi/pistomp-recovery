@@ -65,10 +65,24 @@ def rollback(path: Path, branch: str = FACTORY_BRANCH, ref: str | None = None) -
     add_and_commit(path, f"rollback to {target_ref}")
 
 
+def _first_commit_for_path(path: Path, rel_path: str) -> str | None:
+    """Return the hash of the first commit that touched *rel_path*."""
+    result: str = git(
+        "log", "--reverse", "--format=%H", "--", rel_path, cwd=path, check=False
+    )
+    return result.splitlines()[0] if result else None
+
+
 def rollback_path(path: Path, rel_path: str, ref: str | None = None) -> None:
     """Restore a single path from factory branch (or a specific ref)."""
-    source_ref: str = ref if ref else FACTORY_BRANCH
+    source_ref: str
+    if ref:
+        source_ref = ref
+    else:
+        source_ref = _first_commit_for_path(path, rel_path) or FACTORY_BRANCH
+    git("rm", "-rq", "--", rel_path, cwd=path, check=False)
     git("checkout", source_ref, "--", rel_path, cwd=path)
+    git("clean", "-fd", "--", rel_path, cwd=path)
     add_and_commit(path, f"rollback {rel_path} to {source_ref}")
 
 
