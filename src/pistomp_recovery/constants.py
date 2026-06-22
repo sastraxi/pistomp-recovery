@@ -79,7 +79,7 @@ PACKAGE_SERVICES: dict[str, list[str]] = {
     "lg": [],
     "lcd-splash": [],
     "sfizz-pistomp": ["jack"],
-    "jack_capture": ["jack"],
+    "jack-capture": ["jack"],
     "hylia": ["jack"],
 }
 
