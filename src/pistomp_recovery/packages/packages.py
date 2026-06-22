@@ -2,99 +2,68 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from pistomp_recovery.constants import (
     FACTORY_PACKAGES_FILE,
     PACKAGES_STAMP_FILE,
-    PISTOMP_PACKAGES,
 )
 from pistomp_recovery.facet import RollbackTarget
 from pistomp_recovery.items import Action, Item
-from pistomp_recovery.packages import installer
+from pistomp_recovery.packages.manager import PackageManager, detect_package_manager
 from pistomp_recovery.util import human_time
 
 logger = logging.getLogger(__name__)
 
 
 class PackageFacet:
-    """Recovery facet for tracked pacman packages."""
+    """Recovery facet for tracked system packages (distro-agnostic)."""
 
     name = "packages"
 
+    def __init__(self, manager: PackageManager, packages: tuple[str, ...]) -> None:
+        self._manager = manager
+        self._packages = packages
+
     def init(self) -> None:
-        """Ensure stamp file exists; packages are managed by pacman directly."""
         Path(PACKAGES_STAMP_FILE).parent.mkdir(parents=True, exist_ok=True)
 
     def _collect_versions(self) -> dict[str, str]:
-        result: subprocess.CompletedProcess[str] = subprocess.run(
-            ["pacman", "-Q"],
-            capture_output=True,
-            text=True,
-        )
-        all_packages: dict[str, str] = {}
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts: list[str] = line.split(None, 1)
-            if len(parts) == 2:
-                all_packages[parts[0]] = parts[1]
-        tracked: dict[str, str] = {}
-        for pkg in PISTOMP_PACKAGES:
-            tracked[pkg] = all_packages.get(pkg, "not-installed")
-        return tracked
+        return self._manager.list_installed(self._packages)
 
     def _read_stamp_file(self) -> dict[str, str]:
-        path: Path = Path(PACKAGES_STAMP_FILE)
+        path = Path(PACKAGES_STAMP_FILE)
         if not path.exists():
             return {}
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text())  # type: ignore[no-any-return]
         except (json.JSONDecodeError, OSError):
             logger.warning("Could not read packages stamp file")
             return {}
 
     def _read_factory_file(self) -> dict[str, str]:
-        path: Path = Path(FACTORY_PACKAGES_FILE)
+        path = Path(FACTORY_PACKAGES_FILE)
         if not path.exists():
             return {}
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text())  # type: ignore[no-any-return]
         except (json.JSONDecodeError, OSError):
             logger.warning("Could not read factory packages file")
             return {}
 
     def _write_stamp_file(self) -> None:
-        versions: dict[str, str] = self._collect_versions()
-        path: Path = Path(PACKAGES_STAMP_FILE)
+        versions = self._collect_versions()
+        path = Path(PACKAGES_STAMP_FILE)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(versions, indent=2, sort_keys=True))
 
     def stamp(self) -> str | None:
-        """Write current pacman versions to stamp file."""
         self._write_stamp_file()
         return None
 
     def available_updates(self) -> list[tuple[str, str, str]]:
-        """Sync databases and return (name, old_ver, new_ver) for each update."""
-        subprocess.run(["sudo", "pacman", "-Sy"], capture_output=True, check=False)
-        result: subprocess.CompletedProcess[str] = subprocess.run(
-            ["pacman", "-Qu", *PISTOMP_PACKAGES],
-            capture_output=True,
-            text=True,
-        )
-        updates: list[tuple[str, str, str]] = []
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts: list[str] = line.split()
-            if len(parts) >= 3:
-                updates.append((parts[0], parts[1], parts[2]))
-            elif len(parts) == 2:
-                updates.append((parts[0], "unknown", parts[1]))
-        return updates
+        return self._manager.check_updates(self._packages)
 
     def remote_updates(self) -> list[Item]:
         return [
@@ -102,7 +71,7 @@ class PackageFacet:
                 name=name,
                 label=f"{name} {old_ver}",
                 dirty=False,
-                right=f"\u2191{new_ver}",
+                right=f"↑{new_ver}",
                 actions=[],
             )
             for name, old_ver, new_ver in self.available_updates()
@@ -110,13 +79,13 @@ class PackageFacet:
 
     def list_items(self) -> list[Item]:
         self.init()
-        installed: dict[str, str] = self._collect_versions()
-        stamped: dict[str, str] = self._read_stamp_file()
-        factory: dict[str, str] = self._read_factory_file()
+        installed = self._collect_versions()
+        stamped = self._read_stamp_file()
+        factory = self._read_factory_file()
         available: dict[str, str] = {u[0]: u[2] for u in self.available_updates()}
 
         stamp_time: datetime | None = None
-        stamp_path: Path = Path(PACKAGES_STAMP_FILE)
+        stamp_path = Path(PACKAGES_STAMP_FILE)
         if stamp_path.exists():
             try:
                 stamp_time = datetime.fromtimestamp(stamp_path.stat().st_mtime, tz=timezone.utc)
@@ -124,12 +93,12 @@ class PackageFacet:
                 pass
 
         items: list[Item] = []
-        for pkg in PISTOMP_PACKAGES:
-            inst: str = installed.get(pkg, "not-installed")
-            stamp: str = stamped.get(pkg, "not-installed")
-            fact: str = factory.get(pkg, "not-installed")
-            avail: str | None = available.get(pkg)
-            is_dirty: bool = inst != stamp
+        for pkg in self._packages:
+            inst = installed.get(pkg, "not-installed")
+            stamp = stamped.get(pkg, "not-installed")
+            fact = factory.get(pkg, "not-installed")
+            avail = available.get(pkg)
+            is_dirty = inst != stamp
 
             if is_dirty and stamp_time:
                 right = human_time(stamp_time)
@@ -139,9 +108,9 @@ class PackageFacet:
                 right = human_time(stamp_time) if stamp_time else "factory"
 
             if avail:
-                right = f"\u2191{avail}"
+                right = f"↑{avail}"
 
-            label: str = pkg + (" *" if is_dirty else "")
+            label = pkg + (" *" if is_dirty else "")
             actions: list[Action] = []
             if avail:
                 actions.append(
@@ -171,19 +140,18 @@ class PackageFacet:
         return items
 
     def _install_single(self, pkg: str) -> None:
-        if not installer.download_packages([pkg]):
+        if not self._manager.download([pkg]):
             logger.error("Download failed for %s", pkg)
             return
-        if not installer.install_packages([pkg]):
+        if not self._manager.install([pkg]):
             logger.error("Install failed for %s", pkg)
-            installer.install_from_cache([pkg])
+            self._manager.install_from_cache([pkg])
             return
         self.stamp()
 
     def rollback(self, name: str, target: RollbackTarget) -> None:
-        """Rollback package to stamped or factory version via pacman -U."""
-        stamped: dict[str, str] = self._read_stamp_file()
-        factory: dict[str, str] = self._read_factory_file()
+        stamped = self._read_stamp_file()
+        factory = self._read_factory_file()
         version: str | None = None
         if target == "stamp":
             version = stamped.get(name)
@@ -193,15 +161,25 @@ class PackageFacet:
             logger.warning("No version found for %s in target %s", name, target)
             return
         logger.info("Rolling back %s to %s", name, version)
-        subprocess.run(
-            ["sudo", "pacman", "-U", "--noconfirm", f"{name}={version}"],
-            check=False,
-        )
+        self._manager.install_version(name, version)
 
 
-def make_package_facet() -> PackageFacet:
-    """Return a fresh package facet for registration by an entry point."""
-    return PackageFacet()
+def make_package_facet(
+    manager: PackageManager | None = None,
+    packages: tuple[str, ...] | None = None,
+) -> PackageFacet:
+    """Return a PackageFacet, auto-detecting the distro if manager is not given."""
+    from pistomp_recovery.constants import PISTOMP_PACKAGES, PISTOMP_PACKAGES_DEBIAN
+
+    if manager is None:
+        manager = detect_package_manager()
+
+    if packages is None:
+        from pistomp_recovery.packages.manager import AptManager
+
+        packages = PISTOMP_PACKAGES_DEBIAN if isinstance(manager, AptManager) else PISTOMP_PACKAGES
+
+    return PackageFacet(manager, packages)
 
 
 # Public re-exports used by backends and entry points.

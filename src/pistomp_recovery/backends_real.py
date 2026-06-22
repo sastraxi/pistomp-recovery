@@ -25,7 +25,7 @@ from pistomp_recovery.hardware.encoder import EncoderInput
 from pistomp_recovery.hardware.lcd import LcdSpi
 from pistomp_recovery.hardware.switch import AdcSwitch
 from pistomp_recovery.items import Item
-from pistomp_recovery.packages import installer as package_installer
+from pistomp_recovery.packages.manager import PackageManager, detect_package_manager
 from pistomp_recovery.packages.packages import stamp_packages
 from pistomp_recovery.service import (
     CrashInfo,
@@ -82,7 +82,10 @@ class GpioInputBackend(InputBackend):
 
 
 class RealDataBackend(DataBackend):
-    """Pedalboards, config, system files, and packages backed by git/pacman."""
+    """Pedalboards, config, system files, and packages backed by git/package-manager."""
+
+    def __init__(self, manager: PackageManager) -> None:
+        self._manager = manager
 
     def domains(self) -> tuple[tuple[str, str], ...]:
         return (
@@ -141,15 +144,15 @@ class RealDataBackend(DataBackend):
 
         def _run() -> None:
             progress("Downloading...", 0.0, f"Downloading {len(packages)} package(s)...", False)
-            if not package_installer.download_packages(packages):
+            if not self._manager.download(packages):
                 progress("Download failed", 0.0, "Download failed. Click to continue.", True)
                 result.append(False)
                 return
 
             progress("Installing...", 0.5, f"Installing {len(packages)} package(s)...", False)
-            if not package_installer.install_packages(packages):
+            if not self._manager.install(packages):
                 progress("Rolling back...", 0.5, "Install failed, rolling back...", False)
-                package_installer.install_from_cache(packages)
+                self._manager.install_from_cache(packages)
                 progress("Install failed", 0.0, "Install failed. Click to continue.", True)
                 result.append(False)
                 return
@@ -203,10 +206,11 @@ class RealServiceBackend(ServiceBackend):
 
 
 def make_real_backends() -> AppBackends:
-    register_default_facets()
+    manager = detect_package_manager()
+    register_default_facets(manager)
     return AppBackends(
         display=LcdDisplayBackend(),
         input=GpioInputBackend(),
-        data=RealDataBackend(),
+        data=RealDataBackend(manager),
         services=RealServiceBackend(),
     )

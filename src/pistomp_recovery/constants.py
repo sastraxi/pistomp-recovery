@@ -28,12 +28,17 @@ PISTOMP_PACKAGES: tuple[str, ...] = (
     "lg",
     "lcd-splash",
     "sfizz-pistomp",
-    "jack_capture",
+    "jack-capture",
     "hylia",
     "pi-stomp",
     "mod-ui",
     "pistomp-recovery",
 )
+
+# Debian package names mirror the Arch names — they're all custom packages in
+# a custom apt repo, so naming is up to the pi-gen-pistomp build. Adjust here
+# once the .deb names are finalised.
+PISTOMP_PACKAGES_DEBIAN: tuple[str, ...] = PISTOMP_PACKAGES
 
 # Which recovery domain each package's updates belong to. The four recovery
 # domains are pedalboards / plugins / config / system; all currently-tracked
@@ -79,6 +84,9 @@ PACKAGE_SERVICES: dict[str, list[str]] = {
 }
 
 
+PACKAGE_SERVICES_DEBIAN: dict[str, list[str]] = PACKAGE_SERVICES
+
+
 def services_for_packages(packages: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -91,5 +99,3 @@ def services_for_packages(packages: list[str]) -> list[str]:
                 result.append(svc)
     ordered: list[str] = [svc for svc in chain if svc in seen]
     return ordered
-
-

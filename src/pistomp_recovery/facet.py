@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from pistomp_recovery.packages.manager import PackageManager
 
 from pistomp_recovery.items import Item
 
@@ -68,11 +71,15 @@ def clear_facets() -> None:
     _FACETS.clear()
 
 
-def register_default_facets() -> None:
+def register_default_facets(
+    manager: PackageManager | None = None,
+) -> None:
     """Register the real device facets (config, system, pedalboards, packages).
 
     Entry points that run on the pi-Stomp should call this before using
-    ``all_facets()`` or ``get_facet()``.
+    ``all_facets()`` or ``get_facet()``.  Pass a ``PackageManager`` to share
+    the same detected instance with ``RealDataBackend``; omit it to
+    auto-detect.
     """
     from pistomp_recovery.config import make_config_facet
     from pistomp_recovery.packages.packages import make_package_facet
@@ -82,4 +89,4 @@ def register_default_facets() -> None:
     register_facet("config", make_config_facet())
     register_facet("system", make_system_facet())
     register_facet("pedalboards", make_pedalboard_facet())
-    register_facet("packages", make_package_facet())
+    register_facet("packages", make_package_facet(manager))
