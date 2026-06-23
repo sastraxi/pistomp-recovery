@@ -4,7 +4,7 @@
 
 `pistomp-recovery` is the package-update and recovery service for pi-Stomp. It takes over the LCD when the main app can't run — either because pi-Stomp crashed in a loop, or because the user picked "Recovery" from the System Menu — and offers a small menu to restart services, roll state back to a known-good checkpoint or to factory, apply package updates, and reboot/power off.
 
-It is deliberately a **black box around the device**. The UI core (`RecoveryAppCore`) owns nothing but the LCD menu flow and a screen stack; every side effect — drawing pixels, reading the encoder, listing rollback targets, restarting systemd units — is delegated to an injected backend. On the real device those backends talk to SPI/GPIO, pacman, git, and systemd; in the emulator they talk to a pygame window, the keyboard, and in-memory stubs. The same core runs in both.
+It is deliberately a **black box around the device**. The UI core (`RecoveryAppCore`) owns nothing but the LCD menu flow and a screen stack; every side effect — drawing pixels, reading the encoder, listing rollback targets, restarting systemd units — is delegated to an injected backend. On the real device those backends talk to SPI/GPIO, git, the system package manager (`pacman` on Arch, `apt`/`dpkg` on Debian), and systemd; in the emulator they talk to a pygame window, the keyboard, and in-memory stubs. The same core runs in both.
 
 Recovery and the main app are mutually exclusive owners of the LCD. The systemd unit declares `Conflicts=mod-ala-pi-stomp.service`, so starting recovery stops pi-Stomp and resuming pi-Stomp stops recovery — only one process drives the screen at a time.
 
@@ -12,23 +12,25 @@ This service lives in an ecosystem of sibling repos:
 
 | Repo | Role |
 |------|------|
-| `../pistomp-arch` | Builds the Arch Linux ARM OS image. Holds the PKGBUILDs (including this one), service files, and the `deploy-pkg.sh` build-on-device script. |
+| `../pi-gen-pistomp` | Builds the Debian (Raspberry Pi OS Trixie) OS image. Owns the `.deb` packaging under `debpkgs/pistomp-recovery/` (the service file lives there too), the image-build factory-ref seeding, and the OTA apt-repo tooling. Only currently exercised deployment target. |
 | `../pi-stomp` | The main app (Python). Owns the LCD/encoders/pedalboards in normal operation. `mod-ala-pi-stomp.service` conflicts with ours. |
 | `../mod-ui` | Web UI (Tornado) that talks to mod-host over TCP. |
 
 > When a change could live in either repo, prefer making it here and keep `../pi-stomp` edits minimal.
+>
+> **Packaging lives in `../pi-gen-pistomp`.** This repo intentionally has no `PKGBUILD`, `.deb` `debian/` tree, or service file anymore — it is deployment-agnostic source. The only deployment target we exercise today is Debian via `pi-gen-pistomp`; `PacmanManager` remains for Arch as a runtime code path, but nothing in-repo builds an Arch package.
 
 ## OS & Deployment
 
-Recovery runs on the same custom Arch Linux ARM image as pi-Stomp, out of its own venv, as the `pistomp` user (not root).
+Recovery runs on a custom Linux image (currently Debian Trixie via `pi-gen-pistomp`; `pacman`-based Arch is still supported at runtime by the package-manager abstraction), out of its own venv, as the `pistomp` user (not root).
 
 | Path | Purpose |
 |------|---------|
-| `/opt/pistomp/venvs/pistomp-recovery/` | Python venv (`--system-site-packages`), built by the PKGBUILD |
+| `/opt/pistomp/venvs/pistomp-recovery/` | Python venv (`--system-site-packages`), built by the `.deb` packaging |
 | `…/venvs/pistomp-recovery/lib/python3.X/site-packages/pistomp_recovery/` | The installed package (a plain copy, **not** editable) |
-| `/usr/lib/systemd/system/pistomp-recovery.service` | Service unit (`Conflicts=mod-ala-pi-stomp`) |
+| `/usr/lib/systemd/system/pistomp-recovery.service` | Service unit (`Conflicts=mod-ala-pi-stomp`); source of truth is `../pi-gen-pistomp/debpkgs/pistomp-recovery/debian/pistomp-recovery.pistomp-recovery.service` |
 | `/home/pistomp/data/config/` | Live config files the `config` facet versions |
-| `/home/pistomp/data/.pedalboards/` | Pedalboard bundles the `pedalboards` facet versions |
+| `/home/pistomp/data/.pedalboards/` | Pedalboard bundles the `pedalboards` facet versions; `git config pistomp.factory-ref` is set here at image-build time |
 | `/home/pistomp/.pistomp-recovery/` | Recovery's git repos + `packages.stamp` |
 | `/run/lcd.init` | Stamp left by the boot splash so recovery skips LCD reset |
 
@@ -49,30 +51,13 @@ The device hostname/user default to `pistomp@pistomp.local` (override with `PIST
 ```bash
 rsync -az --delete --exclude='__pycache__' --exclude='*.pyc' \
   src/pistomp_recovery/ \
-  pistomp@pistomp.local:/opt/pistomp/venvs/pistomp-recovery/lib/python3.14/site-packages/pistomp_recovery/
+  pistomp@pistomp.local:/opt/pistomp/venvs/pistomp-recovery/lib/python3.13/site-packages/pistomp_recovery/
 ssh pistomp@pistomp.local 'sudo systemctl restart pistomp-recovery'
 ```
 
-(Match `python3.14` to the device's system Python.) Caveats: this only updates `.py` files — a **new dependency** in `pyproject.toml` is *not* installed this way (verify it's already importable in the venv, e.g. via `--system-site-packages`, or do a full build). Service files and the PKGBUILD aren't covered either. And it's a throwaway: the next `pacman -Syu` or package rebuild overwrites it.
+(Match `python3.13` to the device's system Python.) Caveats: this only updates `.py` files — a **new dependency** in `pyproject.toml` is *not* installed this way (verify it's already importable in the venv, e.g. via `--system-site-packages`, or do a full build). The service file and `.deb` metadata aren't covered either. And it's a throwaway: the next `apt upgrade` or package rebuild overwrites it.
 
-**2. Build + install the package (proper).** From `../pistomp-arch`, build the package on-device from your local tree and install it via pacman:
-
-```bash
-cd ../pistomp-arch
-./deploy-pkg.sh ../pistomp-recovery        # rsync tree → on-device makepkg → pacman -U → restart service
-```
-
-This installs a throwaway `0.dev<timestamp>` version (so a later real release supersedes it) and restarts `pistomp-recovery`. For a real versioned build that goes through git, run `./deploy-pkg.sh pistomp-recovery`.
-
-**3. Publish to the custom repo.** Released pi-Stomp packages are GitHub Release assets on `pistomp-arch` under the fixed tag `repo`; `pistomp.db.tar.zst` is the pacman DB. After a successful `deploy-pkg.sh` it prints the on-device artifact path; fetch it back and publish:
-
-```bash
-mkdir -p repo && scp pistomp@pistomp.local:/tmp/deploy-pkg/*.pkg.tar.* repo/
-cd repo && repo-add pistomp.db.tar.zst pistomp-recovery-*.pkg.tar.zst
-gh release upload repo pistomp.db.tar.zst pistomp.db pistomp-recovery-*.pkg.tar.* --clobber
-```
-
-The device then sees it on the next `pacman -Sy` (the `[pistomp]` repo points at these assets).
+**2. Build + install the `.deb` (proper).** Packaging is owned by `../pi-gen-pistomp` — see that repo's `debpkgs/pistomp-recovery/build.sh`, `scripts/fetch-packages.sh`, and `docs/OTA.md` for the full pipeline (`dpkg-buildpackage` → cache → image install, plus the GitHub Pages apt-repo for OTA). Run the build from `pi-gen-pistomp`; don't replicate it here.
 
 ## Tests
 
@@ -106,7 +91,7 @@ The single mental model: **`RecoveryAppCore` (`app.py`) is UI-only and depends o
 |----------|---------------------------|-----------------------------------|
 | `DisplayBackend` | SPI ILI9341 | pygame window |
 | `InputBackend` | encoder + ADC switch | keyboard |
-| `DataBackend` | git/pacman facets | facets on temp dirs |
+| `DataBackend` | git/package-manager facets | facets on temp dirs |
 | `ServiceBackend` | systemd | stubs |
 
 `run()` is a 30ms loop: poll input → route to the top screen → redraw + flush if dirty. (`pre_poll`/`post_draw` hooks let the emulator pump its window without the core knowing one exists.)
@@ -118,9 +103,9 @@ The single mental model: **`RecoveryAppCore` (`app.py`) is UI-only and depends o
 **Facets** (`facet.py`, `file_facet.py`, `pedalboards.py`) are the recoverable domains — `config`, `system`, `pedalboards`, `packages` — behind a common protocol (`list_items`/`stamp`/`rollback`), registered by `register_default_facets()`. **stamp** = mark current state known-good (pi-Stomp runs `pistomp-stamp` on a good pedalboard load). Two distinct git models:
 
 - **FileFacet** (`config`, `system`): copy-into-repo + copy-back-on-rollback. `factory` branch holds the first snapshot; factory rollback = `git checkout factory -- <file>` then copy repo→live; stamp rollback = `git checkout HEAD -- <file>` then copy repo→live.
-- **PedalboardFacet** (`pedalboards`): in-place tracking — the repo IS the live `.pedalboards/` dir. No copy-back step. Factory rollback restores from the **first commit that touched the path** (not the `factory` branch); stamp rollback restores from the **last commit that touched the path**. The `factory` branch exists but is unused by rollback.
+- **PedalboardFacet** (`pedalboards`): in-place tracking — the repo IS the live `.pedalboards/` dir. No copy-back step. Factory rollback restores from the **factory ref** (`git config pistomp.factory-ref`, set at image-build time to e.g. `origin/main`; falls back to the `factory` branch for locally-init'd repos); stamp rollback restores from the **last commit that touched the path**. The `factory` branch exists but is unused by rollback.
 
-Both use a `device` working branch. The root menu's Checkpoint/Factory/Updates rows feed one shared picker parameterised by `mode`; package updates are pacman-only and scoped to a domain via `PACKAGE_DOMAIN` in `constants.py`.
+Both use a `device` working branch. The root menu's Checkpoint/Factory/Updates rows feed one shared picker parameterised by `mode`; package updates are scoped to a domain via `PACKAGE_DOMAIN` in `constants.py`.
 
 **Rendering** is deterministic for byte-for-byte snapshot tests: a 320×240 surface (40×15 grid), one non-antialiased 8×16 bitmap font at one size, emphasis via reverse video only. Always render through `SafeFont`/`get_font()` (never `pygame.font.Font` — it has a circular import on Python 3.14). Widgets are plain `draw(surface)` renderers; there is no widget hierarchy.
 
@@ -132,17 +117,17 @@ Both use a `device` working branch. The root menu's Checkpoint/Factory/Updates r
 - `__main__.py` — real entry: argparse, boot mode, signal handling, `make_real_backends()`, run loop
 - `app.py` — `RecoveryAppCore`: screen stack, poll loop, menu construction, domain picker, refresh
 - `backends.py` — the four backend `Protocol`s + `AppBackends` container
-- `backends_real.py` — device backends (SPI LCD, GPIO/ADC input, git/pacman data, systemd)
+- `backends_real.py` — device backends (SPI LCD, GPIO/ADC input, git/apt/pacman data, systemd)
 
 **Facets & domains**
 - `facet.py` — `Facet` protocol + registry (`register_default_facets`, `all_facets`)
 - `file_facet.py` — `FileFacet`: copy-into-repo + commit/checkout model for config & system
-- `pedalboards.py` — `PedalboardFacet`: in-place tracking, first-commit-for-path factory rollback
+- `pedalboards.py` — `PedalboardFacet`: in-place tracking, factory-ref factory rollback
 - `config.py`, `system.py` — `make_*_facet()` factories (which files each tracks)
 - `packages/installer.py` — pacman wrapper (download/install/rollback-from-cache)
 - `packages/packages.py` — package facet, version tracking, `stamp_packages`
 - `packages/health.py` — `systemctl is-active` / journal helpers
-- `git_util.py` — git ops: init, commit, factory/device branches, checkout, rollback
+- `git_util.py` — git ops: init, commit, factory/device branches, checkout, rollback, `factory_ref()`
 - `stamp.py` — `pistomp-stamp` CLI (stamp/status), called by pi-Stomp on good load
 
 **System integration**
@@ -169,13 +154,11 @@ Both use a `device` working branch. The root menu's Checkpoint/Factory/Updates r
 - `emulator/bootstrap.py` — `EmulatorApp`, the `pistomp-recovery-emulator` entry point
 - `emulator/window.py`, `controls.py`, `lcd_pygame.py` — window event loop, fake encoder/input
 
-**Packaging**
-- `files/pistomp-recovery.service` — systemd unit (`Conflicts=mod-ala-pi-stomp`)
-- `pkgbuilds/pistomp-recovery/PKGBUILD` — uv venv (`--system-site-packages`) + service install
+**Packaging** — owned by `../pi-gen-pistomp/debpkgs/pistomp-recovery/` (`.deb` build, service unit, changelog). No packaging artifacts live in this repo.
 
 ## Design Principles
 
-- **Black box around the device** — the core only knows `AppBackends`; SPI/GPIO/pacman/systemd live behind protocols, so the emulator and the device run identical UI code.
+- **Black box around the device** — the core only knows `AppBackends`; SPI/GPIO/package-manager/systemd live behind protocols, so the emulator and the device run identical UI code.
 - **Match pi-Stomp's hardware approach** — the encoder/switch/LCD code mirrors `../pi-stomp` exactly; it's the proven reference, and the shared `--system-site-packages` venv resolves the same GPIO backend.
 - **Type safety** — `pyright --typecheckingMode strict`, zero errors in `src/`. No bare `dict`/`list`/`Any`; semantic aliases (`Color`, `SafeFont`, …).
 - **Deterministic rendering** — one bitmap font, one size, non-antialiased; emphasis is reverse video. Snapshot-tested byte-for-byte.

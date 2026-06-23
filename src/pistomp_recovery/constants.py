@@ -25,7 +25,6 @@ PISTOMP_PACKAGES: tuple[str, ...] = (
     "amidithru",
     "fluidsynth-headless",
     "libfluidsynth2-compat",
-    "lg",
     "lcd-splash",
     "sfizz-pistomp",
     "jack-capture",
@@ -33,6 +32,7 @@ PISTOMP_PACKAGES: tuple[str, ...] = (
     "pi-stomp",
     "mod-ui",
     "pistomp-recovery",
+    "jackbridge",
 )
 
 # Debian package names mirror the Arch names — they're all custom packages in
@@ -76,11 +76,11 @@ PACKAGE_SERVICES: dict[str, list[str]] = {
     "amidithru": ["jack"],
     "fluidsynth-headless": ["jack"],
     "libfluidsynth2-compat": [],
-    "lg": [],
     "lcd-splash": [],
     "sfizz-pistomp": ["jack"],
     "jack-capture": ["jack"],
     "hylia": ["jack"],
+    "jackbridge": [],
 }
 
 

@@ -216,3 +216,68 @@ def test_last_commit_for_path_handles_special_chars(repo: Path) -> None:
     h = git_util.last_commit_for_path(repo, name)
     assert h is not None
     assert len(h) == 40
+
+
+def test_factory_ref_defaults_to_factory_branch_when_unset(repo: Path) -> None:
+    # No pistomp.factory-ref config set → fallback to FACTORY_BRANCH constant.
+    assert git_util.factory_ref(repo) == git_util.FACTORY_BRANCH
+
+
+def test_factory_ref_reads_git_config(repo: Path) -> None:
+    git_util.git("config", "--local", "pistomp.factory-ref", "origin/main", cwd=repo)
+    assert git_util.factory_ref(repo) == "origin/main"
+
+
+def test_factory_ref_falls_back_when_config_missing(repo: Path) -> None:
+    # `git config` returns empty when the key is absent (check=False).
+    assert git_util.factory_ref(repo) == git_util.FACTORY_BRANCH
+
+
+def test_rollback_uses_factory_ref_config_when_set(repo: Path) -> None:
+    # Commit factory state on a branch we name via pistomp.factory-ref.
+    (repo / "test.txt").write_text("factory")
+    git_util.add_and_commit(repo, "initial")
+    git_util.git("branch", "factory-tag", cwd=repo)
+    git_util.git("config", "--local", "pistomp.factory-ref", "factory-tag", cwd=repo)
+
+    # Device change on top.
+    (repo / "test.txt").write_text("device change")
+    git_util.add_and_commit(repo, "device change")
+
+    # rollback() with no ref should restore from factory-tag, not FACTORY_BRANCH.
+    git_util.rollback(repo)
+    assert (repo / "test.txt").read_text() == "factory"
+
+
+def test_rollback_path_uses_factory_ref_config_when_set(repo: Path) -> None:
+    (repo / "restore.txt").write_text("factory")
+    (repo / "keep.txt").write_text("keep")
+    git_util.add_and_commit(repo, "initial")
+    git_util.git("branch", "factory-tag", cwd=repo)
+    git_util.git("config", "--local", "pistomp.factory-ref", "factory-tag", cwd=repo)
+
+    (repo / "restore.txt").write_text("modified")
+    (repo / "keep.txt").write_text("keep v2")
+    git_util.add_and_commit(repo, "device change")
+
+    git_util.rollback_path(repo, "restore.txt")
+    assert (repo / "restore.txt").read_text() == "factory"
+    assert (repo / "keep.txt").read_text() == "keep v2"
+
+
+def test_is_at_factory_true_when_head_matches_factory_ref(repo: Path) -> None:
+    (repo / "a.txt").write_text("factory")
+    git_util.add_and_commit(repo, "initial")
+    git_util.git("branch", "factory-tag", cwd=repo)
+    git_util.git("config", "--local", "pistomp.factory-ref", "factory-tag", cwd=repo)
+    assert git_util.is_at_factory(repo, "a.txt") is True
+
+
+def test_is_at_factory_false_after_device_change(repo: Path) -> None:
+    (repo / "a.txt").write_text("factory")
+    git_util.add_and_commit(repo, "initial")
+    git_util.git("branch", "factory-tag", cwd=repo)
+    git_util.git("config", "--local", "pistomp.factory-ref", "factory-tag", cwd=repo)
+    (repo / "a.txt").write_text("device")
+    git_util.add_and_commit(repo, "device change")
+    assert git_util.is_at_factory(repo, "a.txt") is False

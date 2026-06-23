@@ -97,29 +97,27 @@ def add_and_commit(path: Path, message: str) -> str | None:
     return git("rev-parse", "HEAD", cwd=path)
 
 
-def rollback(path: Path, branch: str = FACTORY_BRANCH, ref: str | None = None) -> None:
-    target_ref: str = ref if ref else branch
+def factory_ref(path: Path) -> str:
+    """Return the ref that represents factory state for this repo.
+
+    Reads the ``pistomp.factory-ref`` git config set at image build time
+    (e.g. ``origin/main``). Falls back to the ``FACTORY_BRANCH`` constant for
+    repos that were locally initialised without a remote (e.g. config facet).
+    """
+    ref: str = git("config", "--local", "pistomp.factory-ref", cwd=path, check=False)
+    return ref if ref else FACTORY_BRANCH
+
+
+def rollback(path: Path, ref: str | None = None) -> None:
+    target_ref: str = ref if ref else factory_ref(path)
     git("checkout", DEVICE_BRANCH, cwd=path)
     git("checkout", target_ref, "--", ".", cwd=path)
     add_and_commit(path, f"rollback to {target_ref}")
 
 
-def _first_commit_for_path(path: Path, rel_path: str) -> str | None:
-    """Return the hash of the first commit that touched *rel_path*."""
-    result: str = git("log", "--reverse", "--format=%H", "--", rel_path, cwd=path, check=False)
-    return result.splitlines()[0] if result else None
-
-
 def rollback_path(path: Path, rel_path: str, ref: str | None = None) -> None:
-    """Restore a single path from factory branch (or a specific ref)."""
-    source_ref: str
-    if ref:
-        source_ref = ref
-    else:
-        first: str | None = _first_commit_for_path(path, rel_path)
-        if first is None:
-            raise GitError(f"no factory state found for {rel_path} (path was never committed)")
-        source_ref = first
+    """Restore a single path from factory state (or a specific ref)."""
+    source_ref: str = ref if ref else factory_ref(path)
     git("rm", "-rq", "--", rel_path, cwd=path, check=False)
     git("checkout", source_ref, "--", rel_path, cwd=path)
     git("clean", "-fd", "--", rel_path, cwd=path)
@@ -157,16 +155,8 @@ def matches_ref(path: Path, rel_path: str, ref: str) -> bool:
 
 
 def is_at_factory(path: Path, rel_path: str) -> bool:
-    """Return True if HEAD's content for *rel_path* matches its first commit.
-
-    This mirrors ``rollback_path``'s factory ref: the first commit that
-    touched the path, NOT the ``factory`` branch (which may not exist or may
-    point elsewhere). Returns False if the path was never committed.
-    """
-    first: str | None = _first_commit_for_path(path, rel_path)
-    if first is None:
-        return False
-    return matches_ref(path, rel_path, first)
+    """Return True if HEAD's content for *rel_path* matches factory state."""
+    return matches_ref(path, rel_path, factory_ref(path))
 
 
 def last_commit_time(path: Path) -> datetime | None:

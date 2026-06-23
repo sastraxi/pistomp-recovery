@@ -24,11 +24,11 @@ Architecture
 - **Facets**: git-backed versioned state (etckeeper model)
   - config: default_config.yml, settings.yml
   - pedalboards: .pedalboards/ git repo with per-subdirectory stamp/rollback
-  - packages: pacman version manifests
+  - packages: package-manager version manifests (apt on Debian, pacman on Arch)
   - system: /boot/config.txt, /etc/jackdrc, ALSA state
 - **Items**: PedalboardItem and PackageItem data classes for per-unit operations
 - **PACKAGE_SERVICES**: maps packages to dependent services for restart ordering
-- **Package management**: pacman-based update/rollback with health checks
+- **Package management**: distro-agnostic update/rollback with health checks (`apt`/`dpkg` on Debian, `pacman` on Arch)
 - **LCD UI**: pygame widget library, 320x240, navigation stack, ConfirmDialog overlay
 
 CLI
@@ -52,3 +52,11 @@ Emulator controls:
 - L — Long press (back/cancel)
 - Esc — Quit
 - --force-crash — Start in crash recovery mode
+
+Packaging
+---------
+This repo is deployment-agnostic source. The `.deb` build, systemd unit, and
+OTA apt-repo tooling live in `../pi-gen-pistomp` (see
+`debpkgs/pistomp-recovery/` and `docs/OTA.md` there). For fast dev iteration,
+rsync `src/pistomp_recovery/` straight over the installed site-packages on the
+device — see `CLAUDE.md` for the loop.

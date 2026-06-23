@@ -28,7 +28,7 @@ except Exception:
 
 ### 2. Add `pistomp-recovery` as a dependency
 
-In `pi-stomp`'s PKGBUILD, add `pistomp-recovery` to `depends` (or at least ensure `pistomp-stamp` is on `PATH`). Since `pistomp-recovery` is already installed on the image, this is just ensuring the dependency chain is explicit.
+The Debian packaging for `pistomp-recovery` lives in `../pi-gen-pistomp/debpkgs/pistomp-recovery/debian/control`. To make the dependency chain explicit, add `pistomp-recovery` to `pi-stomp`'s `Depends` line in its own `debian/control` (in `../pi-gen-pistomp/debpkgs/pi-stomp/`). Since `pistomp-recovery` is already installed on the image, this is just ensuring the dependency is declared.
 
 ### 3. `pistomp/settings.py` — no symlink awareness needed
 
