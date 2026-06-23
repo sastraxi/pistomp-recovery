@@ -47,10 +47,11 @@ class RecoveryAppCore:
     def __init__(
         self,
         backends: AppBackends,
-        boot_mode: BootMode,
+        crash_info: CrashInfo,
     ) -> None:
         self._backends: AppBackends = backends
-        self._boot_mode: BootMode = boot_mode
+        self._crash_info: CrashInfo = crash_info
+        self._boot_mode: BootMode = crash_info.boot_mode
         self._running: bool = True
         self._dirty: bool = True
         self._screen_stack: list[Screen] = []
@@ -71,19 +72,11 @@ class RecoveryAppCore:
         )
 
         if self._boot_mode == BootMode.CRASH_RECOVERY:
-            crash_info: CrashInfo | None = self._backends.services.crash_info()
-            if crash_info is None:
-                crash_info = CrashInfo(
-                    boot_mode=BootMode.CRASH_RECOVERY,
-                    failed_service=None,
-                    crash_log="",
-                    service_states={},
-                )
             screen: CrashScreen = CrashScreen(
                 self.surface,
                 on_resume=self._resume_main_app,
                 on_recovery=self._show_main_menu,
-                crash_info=crash_info,
+                crash_info=self._crash_info,
             )
             self.push_screen(screen)
         else:

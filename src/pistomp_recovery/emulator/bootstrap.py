@@ -21,7 +21,7 @@ from pistomp_recovery.app import RecoveryAppCore
 from pistomp_recovery.backends import AppBackends
 from pistomp_recovery.emulator.backends import FakeInputBackend, make_emulator_backends
 from pistomp_recovery.emulator.window import EmulatorWindow
-from pistomp_recovery.service import BootMode
+from pistomp_recovery.service import BootMode, CrashInfo
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,13 @@ class EmulatorApp:
 
     def __init__(self, boot_mode: BootMode = BootMode.USER_RECOVERY) -> None:
         self._backends: AppBackends = make_emulator_backends(boot_mode)
-        self._core: RecoveryAppCore = RecoveryAppCore(self._backends, boot_mode)
+        crash_info: CrashInfo = self._backends.services.crash_info() or CrashInfo(
+            boot_mode=boot_mode,
+            failed_service=None,
+            crash_log="",
+            service_states={},
+        )
+        self._core: RecoveryAppCore = RecoveryAppCore(self._backends, crash_info)
         self._window: EmulatorWindow | None = None
 
     def init(self) -> None:

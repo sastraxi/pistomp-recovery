@@ -9,7 +9,7 @@ import signal
 from pistomp_recovery.app import RecoveryAppCore
 from pistomp_recovery.backends_real import make_real_backends
 from pistomp_recovery.facet import register_default_facets
-from pistomp_recovery.service import BootMode, get_boot_mode
+from pistomp_recovery.service import BootMode, CrashInfo, diagnose_crash
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +33,17 @@ def main(args: list[str] | None = None) -> None:
         format="%(levelname)s:%(name)s:%(message)s",
     )
 
+    # Snapshot crash state immediately — before stop_main_app() or Conflicts=
+    # can transition services to inactive and wipe their Result property.
+    crash_info: CrashInfo = diagnose_crash()
     if parsed.force_crash:
-        boot_mode: BootMode = BootMode.CRASH_RECOVERY
+        crash_info.boot_mode = BootMode.CRASH_RECOVERY
     elif parsed.force_menu:
-        boot_mode = BootMode.USER_RECOVERY
-    else:
-        boot_mode = get_boot_mode()
+        crash_info.boot_mode = BootMode.USER_RECOVERY
 
     register_default_facets()
     backends = make_real_backends()
-    app: RecoveryAppCore = RecoveryAppCore(backends, boot_mode)
+    app: RecoveryAppCore = RecoveryAppCore(backends, crash_info)
 
     def handle_signal(signum: int, frame: object) -> None:
         logger.info("Received signal %d, shutting down", signum)
