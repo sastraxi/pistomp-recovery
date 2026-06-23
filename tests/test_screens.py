@@ -471,6 +471,52 @@ def test_crash_recovery_boot(
     app.cleanup()
 
 
+def test_crash_screen_snapshot(
+    fake_display: FakeDisplayBackend,
+    fake_input: FakeInputBackend,
+    fake_data: FakeDataBackend,
+    snapshot: Callable[..., None],
+) -> None:
+    """CrashScreen renders service states, log tail, and RESUME | RECOVERY actions."""
+    crash_info = CrashInfo(
+        boot_mode=BootMode.CRASH_RECOVERY,
+        failed_service="jack",
+        crash_log=(
+            "ALSA lib pcm.c:2664: Unknown PCM cards.pcm.front\n"
+            "jackd: Failed to initialize backend\n"
+            "jack: server is not running or cannot be started"
+        ),
+        service_states={
+            "jack": "inactive",
+            "mod-host": "inactive",
+            "mod-ui": "inactive",
+            "mod-ala-pi-stomp": "inactive",
+        },
+    )
+    services = FakeServiceBackend(
+        boot_mode=BootMode.CRASH_RECOVERY,
+        crash_info_override=crash_info,
+    )
+    app = RecoveryAppCore(
+        AppBackends(
+            display=fake_display,
+            input=fake_input,
+            data=fake_data,
+            services=services,
+        ),
+        BootMode.CRASH_RECOVERY,
+    )
+    app.init()
+    harness = AppHarness(app, fake_display)
+    harness.inject()
+    snapshot("resume_focused")
+
+    harness.inject(InputEvent.RIGHT)
+    snapshot("recovery_focused")
+
+    app.cleanup()
+
+
 def test_resume_starts_main_app(
     fake_display: FakeDisplayBackend,
     fake_input: FakeInputBackend,

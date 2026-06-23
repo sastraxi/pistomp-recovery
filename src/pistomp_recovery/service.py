@@ -9,7 +9,7 @@ from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from pistomp_recovery.constants import PISTOMP_SERVICES
-from pistomp_recovery.packages.health import service_journal, service_status
+from pistomp_recovery.packages.health import service_journal, service_last_result, service_status
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +34,29 @@ def diagnose_crash() -> CrashInfo:
     return diagnose_services(chain)
 
 
+def _service_crashed(state: str, name: str) -> bool:
+    """True if the service is currently failed or last exited with an error.
+
+    systemd transitions a failed unit from 'failed' → 'inactive' when it is
+    stopped (e.g. to satisfy Conflicts= in the recovery unit), so we can't rely
+    on ActiveState alone.  The Result property is only reset on *start*, so it
+    still reflects a crash even after the state becomes 'inactive'.
+    """
+    if state == "failed":
+        return True
+    if state == "inactive":
+        return service_last_result(name) not in ("", "success")
+    return False
+
+
 def diagnose_services(services: list[str]) -> CrashInfo:
     """Check the current health of the given services."""
     states: dict[str, str] = {}
     failed_service: str | None = None
     for svc in services:
-        states[svc] = service_status(svc)
-        if states[svc] == "failed" and failed_service is None:
+        state = service_status(svc)
+        states[svc] = state
+        if failed_service is None and _service_crashed(state, svc):
             failed_service = svc
 
     crash_log: str = ""
@@ -57,14 +73,7 @@ def diagnose_services(services: list[str]) -> CrashInfo:
 
 
 def get_boot_mode() -> BootMode:
-    result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["systemctl", "is-failed", "mod-ala-pi-stomp"],
-        capture_output=True,
-        text=True,
-    )
-    if result.stdout.strip() == "failed":
-        return BootMode.CRASH_RECOVERY
-    return BootMode.USER_RECOVERY
+    return diagnose_crash().boot_mode
 
 
 def stop_main_app() -> bool:
@@ -83,7 +92,8 @@ def stop_main_app() -> bool:
 
 def start_main_app() -> bool:
     logger.info("Resetting failure state and starting mod-ala-pi-stomp")
-    subprocess.run(["sudo", "systemctl", "reset-failed", "mod-ala-pi-stomp"], check=False)
+    for svc in PISTOMP_SERVICES:
+        subprocess.run(["sudo", "systemctl", "reset-failed", svc], check=False)
 
     for svc in PISTOMP_SERVICES:
         if svc in ("mod-ala-pi-stomp", "mod-ui"):

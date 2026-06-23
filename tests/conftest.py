@@ -228,11 +228,13 @@ class FakeServiceBackend:
         boot_mode: BootMode = BootMode.USER_RECOVERY,
         sha: str = "abc1234",
         restart_diagnosis: CrashInfo | None = None,
+        crash_info_override: CrashInfo | None = None,
     ) -> None:
         self.boot_mode = boot_mode
         self.sha = sha
         self.calls: list[str] = []
         self.restart_diagnosis: CrashInfo | None = restart_diagnosis
+        self._crash_info_override: CrashInfo | None = crash_info_override
 
     def stop_main_app(self) -> bool:
         self.calls.append("stop_main_app")
@@ -273,6 +275,8 @@ class FakeServiceBackend:
         return self.sha
 
     def crash_info(self) -> CrashInfo | None:
+        if self._crash_info_override is not None:
+            return self._crash_info_override
         if self.boot_mode != BootMode.CRASH_RECOVERY:
             return None
         return CrashInfo(
