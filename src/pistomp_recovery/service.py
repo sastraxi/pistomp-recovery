@@ -91,6 +91,11 @@ def stop_main_app() -> bool:
 
 
 def start_main_app() -> bool:
+    """Start the pi-Stomp service stack and let recovery exit.
+
+    We must unload ourselves before services with `Conflicts=` can start.
+    ``--no-block``just queues them: when we exit, they are unblocked.
+    """
     logger.info("Resetting failure state and starting mod-ala-pi-stomp")
     for svc in PISTOMP_SERVICES:
         subprocess.run(["sudo", "systemctl", "reset-failed", svc], check=False)
@@ -98,10 +103,10 @@ def start_main_app() -> bool:
     for svc in PISTOMP_SERVICES:
         if svc == "mod-ala-pi-stomp":
             continue
-        subprocess.run(["sudo", "systemctl", "start", svc], check=False)
+        subprocess.run(["sudo", "systemctl", "start", "--no-block", svc], check=False)
 
     result: subprocess.CompletedProcess[str] = subprocess.run(
-        ["sudo", "systemctl", "start", "mod-ala-pi-stomp"],
+        ["sudo", "systemctl", "start", "--no-block", "mod-ala-pi-stomp"],
         capture_output=True,
         text=True,
     )
