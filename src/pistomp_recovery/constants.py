@@ -46,6 +46,10 @@ PISTOMP_PACKAGES: tuple[str, ...] = (
     "mod-ui",
     "pistomp-recovery",
     "jackbridge",
+    "browsepy",
+    "ffmpeg-pistomp",
+    "touchosc2midi",
+    "lg",
 )
 
 # Debian package names mirror the Arch names — they're all custom packages in
@@ -103,6 +107,10 @@ PACKAGE_SERVICES: dict[str, list[str]] = {
     "jack-capture": ["jack"],
     "hylia": ["jack"],
     "jackbridge": [],
+    "browsepy": ["browsepy"],
+    "ffmpeg-pistomp": [],
+    "touchosc2midi": ["mod-touchosc2midi"],
+    "lg": [],
 }
 
 
