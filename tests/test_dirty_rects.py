@@ -174,6 +174,7 @@ class _FakePanel:
         self.blocks: list[tuple[int, int, int, int, bytes]] = []
         self.image_calls: int = 0
         self.fill_calls: int = 0
+        self.writes: list[tuple[int, bytes]] = []
         # Attributes the driver touches (set by LcdSpi.init via the real driver).
         self._block = self._record_block
         self.spi_device: object | None = None
@@ -194,8 +195,8 @@ class _FakePanel:
     def fill(self, *args: object, **kwargs: object) -> None:
         self.fill_calls += 1
 
-    def write(self, *args: object, **kwargs: object) -> None:
-        pass
+    def write(self, command: int, data: bytes) -> None:
+        self.writes.append((command, bytes(data)))
 
 
 class TestLcdSpiPanelWindow:
@@ -278,3 +279,25 @@ class TestLcdSpiPanelWindow:
             assert wire_be == expected565 or wire_le == expected565, (
                 f"row {y}: px={px:#06x} expected={expected565:#06x}"
             )
+
+
+class TestLcdSpiMadctl:
+    """MADCTL byte selection matches recovery's historical flip convention.
+
+    Recovery's pre-landscape-native driver used ``flip=True`` (the default) to
+    mean "mirror both axes": ``pygame.transform.rotate(surface, 180)`` +
+    ``disp.image(pil, 270)``. The landscape-native port must preserve that
+    convention so the default ``LcdSpi()`` call site in ``backends_real.py``
+    keeps the panel upright on the Tre. MADCTL bit meanings (ILI9341 datasheet):
+
+      * 0xE8 = MY | MX | MV | BGR  — landscape, both axes mirrored
+      * 0x28 = MV | BGR             — landscape, no mirroring
+
+    So ``flip=True`` → ``0xE8`` and ``flip=False`` → ``0x28``.
+    """
+
+    def test_flip_true_writes_mirror_both_axes_madctl(self) -> None:
+        assert LcdSpi._madctl_for(flip=True) == 0xE8
+
+    def test_flip_false_writes_no_mirror_madctl(self) -> None:
+        assert LcdSpi._madctl_for(flip=False) == 0x28

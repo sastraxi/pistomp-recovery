@@ -94,9 +94,11 @@ class LcdSpi:
 
         # Drive the panel landscape-native so 320x240 surfaces push row-major
         # with no rotation. Adafruit's init leaves MADCTL=0x48 (portrait);
-        # re-assert lcd-splash's 0xE8 (MY|MX|MV|BGR) for flip, or 0x28
-        # (MV|BGR, no mirror) for non-flip.
-        madctl: int = 0x28 if self._flip else 0xE8
+        # re-assert the lcd-splash landscape mode. ``flip`` here follows
+        # recovery's historical convention (True = mirror both axes, matching
+        # the old 180° pygame rotation), which is the inverse of pi-stomp's
+        # ``LcdIli9341.flip`` flag.
+        madctl: int = self._madctl_for(self._flip)
         self._disp.write(0x36, bytes([madctl]))  # type: ignore[union-attr]
 
         self._pixels = numpy.empty((LCD_HEIGHT, LCD_WIDTH, 2), dtype=numpy.uint8)
@@ -107,6 +109,18 @@ class LcdSpi:
             Path(INIT_STAMP).touch()
         except OSError:
             pass
+
+    @staticmethod
+    def _madctl_for(flip: bool) -> int:
+        """MADCTL byte for landscape-native orientation.
+
+        ILI9341 MADCTL bits: MY (row order), MX (column order), MV (row/col
+        swap = landscape), BGR. ``0xE8`` (MY|MX|MV|BGR) mirrors both axes;
+        ``0x28`` (MV|BGR) does not. ``flip`` follows recovery's historical
+        convention (True = mirror both axes, the old 180° pygame rotation),
+        which is the inverse of pi-stomp's ``LcdIli9341.flip`` flag.
+        """
+        return 0xE8 if flip else 0x28
 
     def _block_fast(self, x0: int, y0: int, x1: int, y1: int, data: bytes | None = None) -> None:
         """Single-lock/CS block write, ported verbatim from pi-stomp.
