@@ -4,7 +4,7 @@ from typing import Callable
 
 import pygame
 
-from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 
 class Screen:
@@ -12,11 +12,12 @@ class Screen:
         self._surface: pygame.Surface = surface
         self._on_back: Callable[[], None] | None = None
 
-    def draw(self) -> None:
+    def draw(self, clip: Box | None = None) -> None:
         raise NotImplementedError
 
-    def handle_event(self, event: InputEvent) -> bool:
-        return False
+    def handle_event(self, event: InputEvent) -> list[Box]:
+        """Handle an input event; return the rects that changed (empty = none)."""
+        return []
 
     def set_back_callback(self, callback: Callable[[], None] | None) -> None:
         self._on_back = callback

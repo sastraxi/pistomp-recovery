@@ -16,7 +16,6 @@ from unittest.mock import MagicMock
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 from pistomp_recovery.pygame_init import init as _pg_init  # noqa: E402
-from pistomp_recovery.ui.widgets.misc import InputEvent  # noqa: E402
 
 _pg_init()
 
@@ -28,6 +27,7 @@ from pistomp_recovery.backends import AppBackends, DataBackend, DisplayBackend  
 from pistomp_recovery.items import Item, PackageUpdate  # noqa: E402
 from pistomp_recovery.service import BootMode, CrashInfo  # noqa: E402
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen as MS  # noqa: E402
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).parent.parent
 _TESTS_DIR = Path(__file__).parent
@@ -86,10 +86,13 @@ class FakeDisplayBackend:
     def init(self) -> None:
         self._has_splash = True
 
-    def update(self, surface: pygame.Surface) -> None:
+    def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
         rgb = pygame.image.tostring(surface, "RGB")
         img = Image.frombytes("RGB", (self.width, self.height), rgb)
         self.frames.append(img)
+
+    def transfer_ms(self, rect: Box | None = None) -> float:
+        return 0.0
 
 
 # Backwards-compatible alias used by widget tests.
@@ -302,10 +305,12 @@ class AppHarness:
         """Feed events into the app and redraw if dirty."""
         for ev in events:
             self.app.handle_event(ev)
-        if self.app._dirty:
+        if self.app._lcd_needs_update:
             self.app.draw_current_screen()
             self.app._backends.display.update(self.app.surface)
-            self.app._dirty = False
+        self.app._lcd_needs_update = False
+        self.app._pending_lcd_clip = None
+        self.app._inline_rects = []
 
     def drain(self, timeout: float = 3.0) -> None:
         """Wait for any in-progress background work to finish.
@@ -327,7 +332,9 @@ class AppHarness:
         """Force a draw + frame capture (e.g. after a programmatic state change)."""
         self.app.draw_current_screen()
         self.app._backends.display.update(self.app.surface)
-        self.app._dirty = False
+        self.app._lcd_needs_update = False
+        self.app._pending_lcd_clip = None
+        self.app._inline_rects = []
 
     def scroll_to(self, label: str) -> None:
         """Rotate selection until a target whose label contains ``label``."""

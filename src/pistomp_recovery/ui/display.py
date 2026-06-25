@@ -7,6 +7,7 @@ import pygame
 
 from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.pygame_init import init as pg_init
+from pistomp_recovery.ui.widgets.misc import Box
 
 if TYPE_CHECKING:
     from pistomp_recovery.hardware.lcd import LcdSpi
@@ -29,9 +30,14 @@ class Display:
             self._lcd.init()
             self.update(self._surface)
 
-    def update(self, surface: pygame.Surface) -> None:
+    def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
         if self._lcd is not None:
-            self._lcd.update(surface)
+            self._lcd.update(surface, rects)
+
+    def transfer_ms(self, rect: Box | None = None) -> float:
+        if self._lcd is not None:
+            return self._lcd.transfer_ms(rect)
+        return 0.0
 
     @property
     def surface(self) -> pygame.Surface:

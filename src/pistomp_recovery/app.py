@@ -16,19 +16,26 @@ from typing import Callable
 import pygame
 
 from pistomp_recovery.backends import AppBackends
+from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.items import Item, Row, Target
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.screens import Screen
 from pistomp_recovery.ui.screens.crash import CrashScreen
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
-from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 _RESTART_MAX_COLS: int = 38
 
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL: float = 0.03
+
+# Dirty clips whose estimated SPI transfer time is at or below this budget are
+# pushed inline (one push per change, e.g. a selection scan). Larger clips
+# coalesce into a single deferred flush on the next poll tick. Mirrors
+# pi-stomp's PanelStack.INLINE_BUDGET_MS.
+INLINE_BUDGET_MS: float = 8.0
 
 MODE_CHECKPOINT: str = "checkpoint"
 MODE_FACTORY: str = "factory"
@@ -53,8 +60,44 @@ class RecoveryAppCore:
         self._crash_info: CrashInfo = crash_info
         self._boot_mode: BootMode = crash_info.boot_mode
         self._running: bool = True
-        self._dirty: bool = True
+        # Dirty-rect state mirrors pi-stomp's PanelStack:
+        #   _lcd_needs_update=False            → clean, nothing to push
+        #   _lcd_needs_update=True, clip=None  → full-screen redraw pending
+        #   _lcd_needs_update=True, clip=Box   → coalesced partial push pending
+        # Starts full-screen-pending so the first frame draws.
+        self._lcd_needs_update: bool = True
+        self._pending_lcd_clip: Box | None = None
+        # Rects pushed inline this tick (drawn + sent to display immediately).
+        # Collected so _flush_dirty can pass them to post_draw even when there
+        # is no deferred clip.
+        self._inline_rects: list[Box] = []
         self._screen_stack: list[Screen] = []
+
+    def _mark_dirty(self, rect: Box | None = None) -> None:
+        """Draw a dirty region and push inline or coalesce for the next tick."""
+        if rect is None or (self._lcd_needs_update and self._pending_lcd_clip is None):
+            # Full-screen pending (push/pop/thread) — always deferred.
+            self._pending_lcd_clip = None
+            self._lcd_needs_update = True
+            return
+
+        if rect.is_empty():
+            return
+
+        # Draw just this clip now; the surface stays authoritative.
+        self.draw_current_screen(rect)
+
+        if self._backends.display.transfer_ms(rect) <= INLINE_BUDGET_MS:
+            self._backends.display.update(self.surface, [rect])
+            self._inline_rects.append(rect)
+            return
+
+        # Coalesce into the pending push.
+        if self._pending_lcd_clip is None:
+            self._pending_lcd_clip = rect
+        else:
+            self._pending_lcd_clip = self._pending_lcd_clip.union(rect)
+        self._lcd_needs_update = True
 
     @property
     def surface(self) -> pygame.Surface:
@@ -93,7 +136,7 @@ class RecoveryAppCore:
         self,
         *,
         pre_poll: Callable[[], bool] | None = None,
-        post_draw: Callable[[], None] | None = None,
+        post_draw: Callable[[list[Box]], None] | None = None,
     ) -> None:
         while self._running:
             if pre_poll is not None and not pre_poll():
@@ -101,13 +144,41 @@ class RecoveryAppCore:
             events: list[InputEvent] = self._backends.input.poll()
             for event in events:
                 self.handle_event(event)
-            if self._dirty:
-                self.draw_current_screen()
-                self._backends.display.update(self.surface)
-                if post_draw is not None:
-                    post_draw()
-                self._dirty = False
+            self._flush_dirty(post_draw)
             time.sleep(POLL_INTERVAL)
+
+    def _flush_dirty(self, post_draw: Callable[[list[Box]], None] | None = None) -> None:
+        """Flush any coalesced or full-screen pending push to the display.
+
+        Mirrors pi-stomp's ``PanelStack.poll_updates`` + ``_flush_lcd``.
+        Inline pushes already happened in ``_mark_dirty``; this handles the
+        deferred path. Also collects all rects pushed this tick and hands
+        them to ``post_draw`` so the emulator window can partial-flip.
+        """
+        inline = self._inline_rects
+        self._inline_rects = []
+
+        if not self._lcd_needs_update:
+            if inline and post_draw is not None:
+                post_draw(inline)
+            return
+
+        clip = self._pending_lcd_clip
+        self._pending_lcd_clip = None
+        self._lcd_needs_update = False
+
+        if clip is None:
+            # Full-screen: draw now (push/pop/thread didn't draw at dirty time).
+            full = Box(0, 0, LCD_WIDTH, LCD_HEIGHT)
+            self.draw_current_screen(full)
+            self._backends.display.update(self.surface, [full])
+            if post_draw is not None:
+                post_draw([full])
+        else:
+            # Coalesced rect: surface already drawn, just push.
+            self._backends.display.update(self.surface, [clip])
+            if post_draw is not None:
+                post_draw(inline + [clip])
 
     def cleanup(self) -> None:
         self._backends.input.stop()
@@ -117,12 +188,12 @@ class RecoveryAppCore:
 
     def push_screen(self, screen: Screen) -> None:
         self._screen_stack.append(screen)
-        self._dirty = True
+        self._mark_dirty(None)
 
     def pop_screen(self) -> None:
         if len(self._screen_stack) > 1:
             self._screen_stack.pop()
-            self._dirty = True
+            self._mark_dirty(None)
             self._refresh_current_screen()
 
     def current_screen(self) -> Screen | None:
@@ -132,13 +203,14 @@ class RecoveryAppCore:
         screen: Screen | None = self.current_screen()
         if screen is None:
             return
-        if screen.handle_event(event):
-            self._dirty = True
+        touched: list[Box] = screen.handle_event(event)
+        for rect in touched:
+            self._mark_dirty(rect)
 
-    def draw_current_screen(self) -> None:
+    def draw_current_screen(self, clip: Box | None = None) -> None:
         screen: Screen | None = self.current_screen()
         if screen is not None:
-            screen.draw()
+            screen.draw(clip)
 
     # -- menus --------------------------------------------------------------
 
@@ -253,13 +325,13 @@ class RecoveryAppCore:
             reload_callback=lambda: self._refresh_domain_picker(MODE_UPDATES),
         )
         picker.set_progress("Checking for updates...", 0.0, "Checking for updates...", done=False)
-        self._dirty = True
+        self._mark_dirty(None)
 
         def _run() -> None:
             self._backends.data.refresh_package_db()
             self._refresh_domain_picker(MODE_UPDATES, picker=picker)
             picker.clear_progress()
-            self._dirty = True
+            self._mark_dirty(None)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -434,7 +506,7 @@ class RecoveryAppCore:
         def progress(title: str, frac: float, status: str, done: bool) -> None:
             if menu is not None:
                 menu.set_progress(title, frac, status, done=done)
-                self._dirty = True
+                self._mark_dirty(None)
 
         self._backends.data.install_packages(packages, progress)
 
@@ -450,7 +522,7 @@ class RecoveryAppCore:
         if not isinstance(menu, MenuScreen):
             return
         menu.set_progress(f"Restarting {label}...", 0.0, f"Restarting {label}...", False)
-        self._dirty = True
+        self._mark_dirty(None)
 
         def _run() -> None:
             restart_fn()
@@ -464,7 +536,7 @@ class RecoveryAppCore:
                     f"{label} restarted OK. Click to continue.",
                     done=True,
                 )
-            self._dirty = True
+            self._mark_dirty(None)
 
         threading.Thread(target=_run, daemon=True).start()
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import subprocess
 import threading
 
 import pygame
@@ -41,7 +42,7 @@ from pistomp_recovery.service import (
 )
 from pistomp_recovery.ui.display import Display
 from pistomp_recovery.ui.input import InputManager
-from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +60,11 @@ class LcdDisplayBackend(DisplayBackend):
     def init(self) -> None:
         self._display.init()
 
-    def update(self, surface: pygame.Surface) -> None:
-        self._display.update(surface)
+    def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
+        self._display.update(surface, rects)
+
+    def transfer_ms(self, rect: Box | None = None) -> float:
+        return self._display.transfer_ms(rect)
 
 
 class GpioInputBackend(InputBackend):
@@ -190,6 +194,11 @@ class RealDataBackend(DataBackend):
                 stamp_packages()
             except Exception:
                 logger.exception("Stamp after update failed")
+
+            if "pistomp-recovery" in packages:
+                progress("Restarting recovery...", 1.0, "Restarting recovery...", False)
+                subprocess.run(["sudo", "systemctl", "restart", "pistomp-recovery"], check=False)
+                return
 
             progress("Update complete", 1.0, "Done. Exit (►) to restart pi-Stomp.", True)
             result.append(True)

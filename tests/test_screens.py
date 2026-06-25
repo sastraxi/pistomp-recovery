@@ -557,7 +557,7 @@ def _wait_for_restart(harness: AppHarness) -> None:
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
         time.sleep(0.01)
-        if harness.app._dirty:
+        if harness.app._lcd_needs_update:
             harness.redraw()
             return
     raise TimeoutError("Restart worker did not complete in time")

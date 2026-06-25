@@ -155,8 +155,12 @@ class TestSystemDomainPackages:
         harness.select("System")
         harness.inject()
         rows = harness.row_labels()
-        assert any("jack2-pistomp" in r for r in rows), f"jack2-pistomp not in System updates: {rows}"
-        assert any("mod-ui" in r for r in rows), f"mod-ui not in System updates: {rows}"
+        assert any("jack2-pistomp" in r for r in rows), (
+            f"jack2-pistomp not in System updates: {rows}"
+        )
+        assert any("mod-ui" in r for r in rows), (
+            f"mod-ui not in System updates: {rows}"
+        )
 
     def test_updates_config_domain_shows_no_updates(self, emulator_harness: AppHarness) -> None:
         """Config domain shows no updates (file facets have no remote updates)."""
@@ -168,7 +172,9 @@ class TestSystemDomainPackages:
         harness.inject()
         rows = harness.row_labels()
         # Only "No updates" placeholder row expected
-        assert any("No updates" in r for r in rows), f"expected 'No updates' in Config updates: {rows}"
+        assert any("No updates" in r for r in rows), (
+            f"expected 'No updates' in Config updates: {rows}"
+        )
 
     def test_factory_reset_system_shows_package_items(
         self, emulator_harness: AppHarness

@@ -15,19 +15,30 @@ import pygame
 
 from pistomp_recovery.items import Item
 from pistomp_recovery.service import CrashInfo
-from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 
 @runtime_checkable
 class DisplayBackend(Protocol):
-    """LCD bridge: a pygame Surface that can be flushed to hardware."""
+    """LCD bridge: a pygame Surface that can be flushed to hardware.
+
+    ``update`` accepts an optional list of dirty rects (in surface
+    coordinates). When ``rects`` is None or omitted the whole surface is
+    pushed; otherwise backends may push only the union of the given rects
+    to avoid a full-frame SPI transfer. ``transfer_ms`` estimates the cost
+    of pushing a rect so the core can decide inline-vs-coalesce.
+    """
 
     @property
     def surface(self) -> pygame.Surface: ...
 
     def init(self) -> None: ...
 
-    def update(self, surface: pygame.Surface) -> None: ...
+    def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None: ...
+
+    def transfer_ms(self, rect: Box | None = None) -> float:
+        """Estimated milliseconds to push ``rect`` (or the whole panel)."""
+        return 0.0
 
 
 @runtime_checkable

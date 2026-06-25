@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from enum import Enum, auto
 
+import pygame
+
 
 class InputEvent(Enum):
     LEFT = auto()
@@ -58,6 +60,13 @@ class Box:
     def offset(self, dx: int, dy: int) -> "Box":
         return Box(self.x + dx, self.y + dy, self.w, self.h)
 
+    def is_empty(self) -> bool:
+        """True if this rect has zero area (w or h <= 0)."""
+        return self.w <= 0 or self.h <= 0
+
+    def to_pygame_rect(self) -> pygame.Rect:
+        return pygame.Rect(self.x, self.y, self.w, self.h)
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Box):
             return NotImplemented
@@ -65,3 +74,13 @@ class Box:
 
     def __repr__(self) -> str:
         return f"Box({self.x},{self.y},{self.w},{self.h})"
+
+
+def union_rects(rects: list[Box]) -> Box | None:
+    """Bounding box of a list of rects; None if empty or all empty."""
+    acc: Box | None = None
+    for r in rects:
+        if r.is_empty():
+            continue
+        acc = r if acc is None else acc.union(r)
+    return acc

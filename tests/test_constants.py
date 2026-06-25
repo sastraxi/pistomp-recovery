@@ -66,7 +66,9 @@ class TestDomainFacets:
         seen: set[str] = set()
         for domain, facets in DOMAIN_FACETS.items():
             for f in facets:
-                assert f not in seen, f"Facet {f!r} appears in multiple domains (second: {domain!r})"
+                assert f not in seen, (
+                    f"Facet {f!r} appears in multiple domains (second: {domain!r})"
+                )
                 seen.add(f)
 
     def test_all_domains_have_at_least_one_facet(self) -> None:

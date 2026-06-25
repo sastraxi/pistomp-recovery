@@ -22,7 +22,7 @@ from typing import Callable
 import pygame
 
 from pistomp_recovery.ui.fonts import SafeFont
-from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 
 # Dimensions
 LCD_SCALE: int = 2
@@ -109,7 +109,7 @@ class EmulatorWindow:
                 self._send_event(event)
                 return
 
-    def render(self) -> None:
+    def render(self, rects: list[Box] | None = None) -> None:
         self.screen.fill(BG)
 
         # Scale LCD surface to display size
@@ -133,4 +133,18 @@ class EmulatorWindow:
         help_surf = self._help_font.render(help_text, True, (160, 160, 160))
         self.screen.blit(help_surf, (8, self._help_y))
 
-        pygame.display.flip()
+        if rects:
+            # Partial flip: scale LCD-surface rects to window coords and
+            # include the control panel + help line (they always repaint).
+            win_rects: list[pygame.Rect] = [
+                pygame.Rect(
+                    r.x * LCD_SCALE, r.y * LCD_SCALE,
+                    r.w * LCD_SCALE, r.h * LCD_SCALE,
+                )
+                for r in rects
+            ]
+            # The buttons + help live below the LCD; always re-flush them.
+            win_rects.append(pygame.Rect(0, self.disp_h, self.win_w, CTRL_H))
+            pygame.display.update(win_rects)
+        else:
+            pygame.display.flip()

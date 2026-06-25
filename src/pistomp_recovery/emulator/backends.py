@@ -38,7 +38,7 @@ from pistomp_recovery.file_facet import FileFacet
 from pistomp_recovery.items import Action, Item, PackageUpdate
 from pistomp_recovery.pedalboards import PedalboardFacet
 from pistomp_recovery.service import BootMode, CrashInfo
-from pistomp_recovery.ui.widgets.misc import InputEvent
+from pistomp_recovery.ui.widgets.misc import Box, InputEvent
 from pistomp_recovery.util import human_time
 
 logger = logging.getLogger(__name__)
@@ -57,9 +57,13 @@ class PygameDisplayBackend(DisplayBackend):
     def init(self) -> None:
         self._surface.fill((0, 0, 0))
 
-    def update(self, surface: pygame.Surface) -> None:
+    def update(self, surface: pygame.Surface, rects: list[Box] | None = None) -> None:
         if surface is not self._surface:
             self._surface.blit(surface, (0, 0))
+
+    def transfer_ms(self, rect: Box | None = None) -> float:
+        # Emulator has no SPI; report a small constant so small clips go inline.
+        return 0.0
 
 
 class FakeInputBackend(InputBackend):

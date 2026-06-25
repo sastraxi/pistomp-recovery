@@ -71,7 +71,7 @@ class PacmanManager:
 
     def sync_db(self) -> bool:
         result: subprocess.CompletedProcess[str] = subprocess.run(
-            ["sudo", "pacman", "-Sy"], capture_output=True, check=False
+            ["sudo", "pacman", "-Sy"], capture_output=True, check=False, text=True
         )
         self._synced = True
         return result.returncode == 0
@@ -176,7 +176,7 @@ class AptManager:
 
     def sync_db(self) -> bool:
         result: subprocess.CompletedProcess[str] = subprocess.run(
-            ["sudo", "apt-get", "update", "-qq"], capture_output=True, check=False
+            ["sudo", "apt-get", "update", "-qq"], capture_output=True, check=False, text=True
         )
         self._synced = True
         return result.returncode == 0

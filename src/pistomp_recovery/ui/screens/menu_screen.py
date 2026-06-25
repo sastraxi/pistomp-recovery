@@ -148,28 +148,57 @@ class MenuScreen(Screen):
 
     # -- input --------------------------------------------------------------
 
-    def handle_event(self, event: InputEvent) -> bool:
+    def handle_event(self, event: InputEvent) -> list[Box]:
         if self._state == "PROGRESS":
             if self._progress_done and event == InputEvent.CLICK:
                 self.reload()
                 self.clear_progress()
-            return True
+            return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
         if self._state == "CONFIRM":
             if self._confirm_dialog is not None:
                 self._confirm_dialog.handle_event(event)
-            return True
+            return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
         if event == InputEvent.LEFT:
+            old_rect = self._selection_rect()
+            old_scroll = self._scroll
             self._sel = (self._sel - 1) % len(self._nav)
             self._scroll_into_view()
-            return True
+            if self._scroll != old_scroll:
+                return [self._content_rect()]
+            new_rect = self._selection_rect()
+            return [old_rect, new_rect]
         if event == InputEvent.RIGHT:
+            old_rect = self._selection_rect()
+            old_scroll = self._scroll
             self._sel = (self._sel + 1) % len(self._nav)
             self._scroll_into_view()
-            return True
+            if self._scroll != old_scroll:
+                return [self._content_rect()]
+            new_rect = self._selection_rect()
+            return [old_rect, new_rect]
         if event == InputEvent.CLICK:
             self._activate()
-            return True
-        return False
+            return [Box(0, 0, LCD_WIDTH, LCD_HEIGHT)]
+        return []
+
+    def _selection_rect(self) -> Box:
+        """Bounding rect of the current selection (for dirty tracking)."""
+        pos: NavPos = self._nav[self._sel]
+        ch: int = cell_size()[1]
+        if pos == _HEADER:
+            return Box(0, 0, LCD_WIDTH, ch)
+        content_y0: int = self._content_top()
+        r: int = pos[0]
+        y: int = content_y0 + (r - self._scroll) * ch
+        if y >= LCD_HEIGHT or y + ch <= 0:
+            return Box(0, 0, 0, 0)
+        y = max(0, y)
+        return Box(0, y, LCD_WIDTH, ch)
+
+    def _content_rect(self) -> Box:
+        """Bounding rect of the scrollable content area."""
+        ch: int = cell_size()[1]
+        return Box(0, self._content_top(), LCD_WIDTH, self._content_lines() * ch)
 
     def _activate(self) -> None:
         target: Target = self._target_at(self._nav[self._sel])
@@ -198,21 +227,29 @@ class MenuScreen(Screen):
 
     # -- drawing ------------------------------------------------------------
 
-    def draw(self) -> None:
-        self._surface.fill(COLORS["bg"])
+    def draw(self, clip: Box | None = None) -> None:
+        if clip is None:
+            clip = Box(0, 0, LCD_WIDTH, LCD_HEIGHT)
+        # Scope all drawing to the dirty region so a partial redraw only
+        # touches the pixels that actually changed.
+        self._surface.set_clip(clip.to_pygame_rect())
+        try:
+            self._surface.fill(COLORS["bg"])
 
-        if self._state == "PROGRESS":
-            self._draw_progress()
-            return
+            if self._state == "PROGRESS":
+                self._draw_progress()
+                return
 
-        self._header.draw(self._surface, icon_selected=self._sel == 0)
-        self._draw_rows()
-        if self._status_text:
-            self._status.set_text(self._status_text)
-            self._status.draw(self._surface)
+            self._header.draw(self._surface, icon_selected=self._sel == 0)
+            self._draw_rows()
+            if self._status_text:
+                self._status.set_text(self._status_text)
+                self._status.draw(self._surface)
 
-        if self._state == "CONFIRM" and self._confirm_dialog is not None:
-            self._confirm_dialog.draw()
+            if self._state == "CONFIRM" and self._confirm_dialog is not None:
+                self._confirm_dialog.draw()
+        finally:
+            self._surface.set_clip(None)
 
     def _draw_progress(self) -> None:
         ch: int = cell_size()[1]
