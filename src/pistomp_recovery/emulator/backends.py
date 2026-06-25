@@ -272,13 +272,16 @@ class EmulatorDataBackend(DataBackend):
     def refresh_package_db(self) -> None:
         pass
 
-    def domains(self) -> tuple[tuple[str, str], ...]:
-        return (
+    def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
+        all_domains: tuple[tuple[str, str], ...] = (
             ("pedalboards", "Pedalboards"),
             ("plugins", "Plugins"),
             ("config", "Config"),
             ("system", "System"),
         )
+        if mode == "updates":
+            return (("system", "System"),)
+        return all_domains
 
     def _facets_for(self, domain: str) -> list[Facet]:
         from pistomp_recovery.facet import all_facets
@@ -305,6 +308,8 @@ class EmulatorDataBackend(DataBackend):
                 for it in raw:
                     actions = [a for a in it.actions if a.label == wanted]
                     if not actions:
+                        if mode == "checkpoint" and not it.dirty:
+                            out.append(Item(it.name, it.label, it.dirty, it.right, actions))
                         continue
                     if mode == "checkpoint" and not it.dirty:
                         continue

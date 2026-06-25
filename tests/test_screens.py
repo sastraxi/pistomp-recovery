@@ -190,22 +190,20 @@ def test_progress_blocks_then_dismisses(
     assert screen._state == "LIST"
 
 
-def test_update_picker_excludes_all_from_count(
+def test_update_picker_shows_only_system(
     recovery_app: AppHarness, snapshot: Callable[..., None]
 ) -> None:
-    """The Updates picker badge counts real updates, not the synthetic Update All."""
+    """The Updates picker shows only System (the only domain with installable updates)."""
     harness = recovery_app
     harness.app._screen_stack.clear()
     fake_data = harness.app._backends.data
     assert isinstance(fake_data, FakeDataBackend)
 
-    # Set up real package updates so the picker shows badges.
+    # Set up real package updates so the picker shows a badge.
     fake_data.set_updates(
         "system",
         [PackageUpdate("a", "0.1", "0.2"), PackageUpdate("b", "0.3", "0.4")],
     )
-    # Pedalboards and plugins have no updates (info message, not counted).
-    # Config has no update concept.
 
     harness.app._show_domain_picker("updates")
     harness.inject()
@@ -213,16 +211,15 @@ def test_update_picker_excludes_all_from_count(
 
     menu = harness._menu()
     assert menu is not None
-    # System shows "2 available", others show no badge.
-    assert menu._rows[3].right == "2 available"
-    assert menu._rows[0].right == ""  # pedalboards — info message, not counted
-    assert menu._rows[1].right == ""  # plugins — no updates
-    assert menu._rows[2].right == ""  # config — no updates
+    # Only System appears in Updates; pedalboards/plugins/config are omitted.
+    labels = harness.row_labels()
+    assert labels == ["System"]
+    assert menu._rows[0].right == "2 available"
 
     # Domain detail rows still render all items, including Update All.
     items = [
-        Item("a", "a 0.1", False, "↑0.2", [Action("Update", lambda: None)]),
-        Item("b", "b 0.3", False, "↑0.4", [Action("Update", lambda: None)]),
+        Item("a", "a 0.1", False, "\u21910.2", [Action("Update", lambda: None)]),
+        Item("b", "b 0.3", False, "\u21910.4", [Action("Update", lambda: None)]),
         Item("all", "Update All", False, "", [Action("Update All", lambda: None)]),
     ]
     _push(
@@ -234,19 +231,6 @@ def test_update_picker_excludes_all_from_count(
     harness.inject()
     snapshot("domain_list")
     assert harness.row_labels() == ["a 0.1", "b 0.3", "Update All"]
-
-
-def test_pedalboard_updates_shows_info_message() -> None:
-    """Pedalboard remote_updates returns a word-wrapped info message, not updates."""
-    from pistomp_recovery.pedalboards import PedalboardFacet
-
-    facet = PedalboardFacet()
-    items = facet.remote_updates()
-    assert len(items) > 1
-    assert all(len(it.actions) == 1 and it.actions[0].label == "" for it in items)
-    text = " ".join(it.label for it in items)
-    assert "pistomp.local" in text
-    assert "PatchStorage" in text
 
 
 def test_plugin_facet_cache_summary(tmp_path: Path) -> None:
@@ -313,30 +297,6 @@ def test_update_items_are_selectable_with_empty_actions(
     assert harness.row_labels() == ["a 0.1", "b 0.3"]
     # All update items should be navigable (enabled) even with empty actions.
     assert all(target.enabled for row in menu._rows for target in row.targets)
-
-
-def test_pedalboard_updates_screen_shows_info_message(
-    recovery_app: AppHarness, snapshot: Callable[..., None]
-) -> None:
-    """Updates → Pedalboards shows the word-wrapped info message instead of updates."""
-    from pistomp_recovery.pedalboards import PedalboardFacet
-
-    harness = recovery_app
-    harness.app._screen_stack.clear()
-    items = PedalboardFacet().remote_updates()
-    assert len(items) > 1
-    _push(
-        harness,
-        "Pedalboards",
-        [Row((Target(it.label, lambda: None, enabled=False),)) for it in items],
-        back=True,
-    )
-    harness.inject()
-    snapshot()
-
-    text = " ".join(harness.row_labels())
-    assert "pistomp.local" in text
-    assert "PatchStorage" in text
 
 
 def test_plugins_factory_picker_shows_cache_badge(

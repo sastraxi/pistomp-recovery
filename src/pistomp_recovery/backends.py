@@ -59,8 +59,14 @@ ProgressCallback = Callable[[str, float, str, bool], None]
 class DataBackend(Protocol):
     """Source of recoverable domains and the actions that mutate them."""
 
-    def domains(self) -> tuple[tuple[str, str], ...]:
-        """Return (domain_id, domain_label) pairs in menu order."""
+    def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
+        """Return (domain_id, domain_label) pairs in menu order.
+
+        ``mode`` is the recovery mode (``checkpoint``/``factory``/``updates``).
+        Implementations may omit domains that have no items for a given mode
+        (e.g. pedalboards/plugins have no installable updates, so they drop
+        out of the Updates picker).  The default ignores mode and returns all.
+        """
         ...
 
     def domain_items(self, mode: str, domain: str) -> list[Item]:

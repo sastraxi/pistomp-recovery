@@ -297,7 +297,7 @@ class RecoveryAppCore:
             self._show_updates_picker()
             return
         rows: list[Row] = []
-        for domain, label in self._backends.data.domains():
+        for domain, label in self._backends.data.domains(mode):
             items = self._backends.data.domain_items(mode, domain)
             count = sum(1 for it in items if it.name != "all")
             summary: str = self._backends.data.domain_summary(mode, domain)
@@ -484,7 +484,7 @@ class RecoveryAppCore:
                 return
             picker = screen
         rows: list[Row] = []
-        for domain, label in self._backends.data.domains():
+        for domain, label in self._backends.data.domains(mode):
             items = self._backends.data.domain_items(mode, domain)
             count: int = sum(1 for it in items if it.name != "all")
             summary: str = self._backends.data.domain_summary(mode, domain)

@@ -162,19 +162,14 @@ class TestSystemDomainPackages:
             f"mod-ui not in System updates: {rows}"
         )
 
-    def test_updates_config_domain_shows_no_updates(self, emulator_harness: AppHarness) -> None:
-        """Config domain shows no updates (file facets have no remote updates)."""
+    def test_updates_picker_shows_only_system(self, emulator_harness: AppHarness) -> None:
+        """Updates picker only shows System; pedalboards/plugins/config are excluded."""
         harness = emulator_harness
 
         harness.select("Updates")
         harness.drain()
-        harness.select("Config")
-        harness.inject()
-        rows = harness.row_labels()
-        # Only "No updates" placeholder row expected
-        assert any("No updates" in r for r in rows), (
-            f"expected 'No updates' in Config updates: {rows}"
-        )
+        labels = harness.row_labels()
+        assert labels == ["System"], f"unexpected Updates picker labels: {labels}"
 
     def test_factory_reset_system_shows_package_items(
         self, emulator_harness: AppHarness

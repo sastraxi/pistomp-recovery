@@ -8,7 +8,7 @@ from pistomp_recovery import git_util
 from pistomp_recovery.constants import PEDALBOARDS_DIR
 from pistomp_recovery.facet import RollbackTarget
 from pistomp_recovery.items import Action, Item
-from pistomp_recovery.util import human_time, word_wrap
+from pistomp_recovery.util import human_time
 
 logger = logging.getLogger(__name__)
 
@@ -39,27 +39,6 @@ class PedalboardFacet:
             git_util.add_and_commit(target, "initial pedalboards state")
             git_util.create_factory_branch(target)
         git_util.git("checkout", git_util.DEVICE_BRANCH, cwd=target, check=False)
-
-    def remote_updates(self) -> list[Item]:
-        """Pedalboard updates are handled by mod-ui's PatchStorage downloader.
-
-        Recovery shows a word-wrapped informational message directing the user
-        to the MOD-UI web interface instead of an update list.
-        """
-        msg: str = (
-            "Visit the PatchStorage tab on pistomp.local "
-            "for pedalboard and plugin updates."
-        )
-        return [
-            Item(
-                name=line,
-                label=line,
-                dirty=False,
-                right="",
-                actions=[Action("", lambda: None)],
-            )
-            for line in word_wrap(msg, 36)
-        ]
 
     def list_items(self, path: Path | None = None) -> list[Item]:
         target = path or self.path
@@ -158,6 +137,9 @@ class PedalboardFacet:
             ref = git_util.last_commit_for_path(repo, name)
             if ref:
                 git_util.rollback_path(repo, name, ref=ref)
+
+    def remote_updates(self) -> list[Item]:
+        return []
 
 
 def make_pedalboard_facet(path: Path | None = None) -> PedalboardFacet:

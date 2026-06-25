@@ -110,13 +110,17 @@ class RealDataBackend(DataBackend):
             return
         self._manager.sync_db()
 
-    def domains(self) -> tuple[tuple[str, str], ...]:
-        return (
+    def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
+        all_domains: tuple[tuple[str, str], ...] = (
             ("pedalboards", "Pedalboards"),
             ("plugins", "Plugins"),
             ("config", "Config"),
             ("system", "System"),
         )
+        if mode == "updates":
+            # Only system (packages) has installable updates.
+            return (("system", "System"),)
+        return all_domains
 
     def _facets_for(self, domain: str) -> list[Facet]:
         facets = all_facets()
@@ -146,6 +150,10 @@ class RealDataBackend(DataBackend):
                 for it in raw:
                     actions = [a for a in it.actions if a.label == wanted]
                     if not actions:
+                        # Keep clean no-action items (e.g. missing plugin bundles)
+                        # as informational rows in checkpoint mode.
+                        if mode == "checkpoint" and not it.dirty:
+                            out.append(Item(it.name, it.label, it.dirty, it.right, actions))
                         continue
                     if mode == "checkpoint" and not it.dirty:
                         continue

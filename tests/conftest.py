@@ -179,13 +179,16 @@ class FakeDataBackend(DataBackend):
     def set_domain_summary(self, mode: str, domain: str, summary: str) -> None:
         self._domain_summaries.setdefault(mode, {})[domain] = summary
 
-    def domains(self) -> tuple[tuple[str, str], ...]:
-        return (
+    def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
+        all_domains: tuple[tuple[str, str], ...] = (
             ("pedalboards", "Pedalboards"),
             ("plugins", "Plugins"),
             ("config", "Config"),
             ("system", "System"),
         )
+        if mode == "updates":
+            return (("system", "System"),)
+        return all_domains
 
     def domain_items(self, mode: str, domain: str) -> list[Item]:
         if mode == "updates":

@@ -21,7 +21,9 @@ PATCHSTORAGE_MARKER: str = "patchstorage.json"
 PLUGINS_CACHE_WARN_BYTES: int = 512 * 1024 * 1024
 RECOVERY_DIR: str = f"{PISTOMP_HOME}/.pistomp-recovery"
 PACKAGES_STAMP_FILE: str = f"{RECOVERY_DIR}/packages.stamp"
+PLUGINS_STAMP_FILE: str = f"{RECOVERY_DIR}/plugins.stamp"
 FACTORY_PACKAGES_FILE: str = "/etc/pistomp/factory-packages.list"
+FACTORY_LV2_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-bundles.list"
 LCD_WIDTH: int = 320
 LCD_HEIGHT: int = 240
 

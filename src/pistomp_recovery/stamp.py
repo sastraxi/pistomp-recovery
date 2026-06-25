@@ -5,14 +5,16 @@ from pathlib import Path
 
 from pistomp_recovery.facet import all_facets
 
-FACET_ORDER: tuple[str, ...] = ("pedalboards", "packages", "config", "system")
+FACET_ORDER: tuple[str, ...] = ("pedalboards", "plugins", "packages", "config", "system")
 
 
 def cmd_stamp(args: argparse.Namespace) -> None:
     """Stamp current state as known-good across all facets.
 
-    When ``pedalboard_bundle`` is given, the pedalboards facet stamps only
+    When ``--pedalboard <bundle>`` is given, the pedalboards facet stamps only
     that single pedalboard so per-pedalboard timestamps are preserved.
+    When ``--plugin <name>`` is given, the plugins facet stamps only that
+    single bundle (appends its dir name to the known-good set).
     Other facets are always stamped globally.
     """
     facets = all_facets()
@@ -20,13 +22,19 @@ def cmd_stamp(args: argparse.Namespace) -> None:
         facet = facets.get(name)
         if facet is None:
             continue
-        if name == "pedalboards" and args.pedalboard_bundle:
-            name_arg = Path(args.pedalboard_bundle).name
+        if name == "pedalboards" and args.pedalboard:
+            name_arg = Path(args.pedalboard).name
             tag: str | None = facet.stamp_item(name_arg)  # type: ignore[union-attr]
             if tag:
                 print(f"stamped {name}/{name_arg}: {tag[:8]}")
             else:
                 print(f"stamped {name}/{name_arg}")
+        elif name == "plugins" and args.plugin:
+            tag = facet.stamp_item(args.plugin)  # type: ignore[union-attr]
+            if tag:
+                print(f"stamped {name}/{args.plugin}: {tag[:8]}")
+            else:
+                print(f"stamped {name}/{args.plugin}")
         else:
             tag = facet.stamp()
             if tag:
@@ -54,20 +62,33 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def main(args: list[str] | None = None) -> None:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description="pistomp stamp utility")
-    parser.add_argument(
-        "command",
-        choices=["stamp", "status"],
-        help="Action to perform",
-    )
-    parser.add_argument(
-        "pedalboard_bundle",
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    stamp_parser = sub.add_parser("stamp", help="Stamp current state as known-good")
+    stamp_parser.add_argument(
+        "--pedalboard",
         type=str,
-        nargs="?",
         default=None,
-        help="Pedalboard bundle path to stamp individually (preserves per-pedalboard timestamps)",
+        help="Pedalboard bundle path to stamp individually",
+    )
+    stamp_parser.add_argument(
+        "--plugin",
+        type=str,
+        default=None,
+        help="Plugin bundle dir name to stamp individually (appends to known-good set)",
     )
 
-    parsed: argparse.Namespace = parser.parse_args(args)
+    sub.add_parser("status", help="Show dirty state across all facets")
+
+    # Backwards compatibility: allow positional form for stamp.
+    # `pistomp-stamp stamp <bundle>` → treats <bundle> as --pedalboard.
+    parsed = parser.parse_args(args)
+    if parsed.command == "stamp" and parsed.pedalboard is None and len(args or []) > 1:
+        # Check if the second arg (after "stamp") is a path, not a flag.
+        positional = [a for a in (args or [])[1:] if not a.startswith("-")]
+        if positional:
+            parsed.pedalboard = positional[0]
+
     if parsed.command == "stamp":
         cmd_stamp(parsed)
     elif parsed.command == "status":
