@@ -30,7 +30,7 @@ from pistomp_recovery.constants import (
     DOMAIN_FACETS,
     LCD_HEIGHT,
     LCD_WIDTH,
-    PISTOMP_PACKAGES,
+    PACKAGE_SERVICES,
 )
 from pistomp_recovery.emulator.controls import FakeEncoderInput, FakeInputManager
 from pistomp_recovery.facet import Facet, RollbackTarget, clear_facets, register_facet
@@ -92,7 +92,7 @@ class EmulatorPackageFacet:
     name = "packages"
 
     def __init__(self) -> None:
-        self._installed: dict[str, str] = {pkg: "1.0.0" for pkg in PISTOMP_PACKAGES}
+        self._installed: dict[str, str] = {pkg: "1.0.0" for pkg in PACKAGE_SERVICES}
         self._stamped: dict[str, str] = dict(self._installed)
         self._factory: dict[str, str] = dict(self._installed)
         self._updates: list[PackageUpdate] = [
@@ -266,11 +266,23 @@ class EmulatorDataBackend(DataBackend):
     def cleanup(self) -> None:
         shutil.rmtree(self._root, ignore_errors=True)
 
+    def domain_summary(self, mode: str, domain: str) -> str:
+        return ""
+
     def has_internet(self) -> bool:
         return True
 
     def refresh_package_db(self) -> None:
         pass
+
+    def package_detail(self, name: str) -> list[str]:
+        return [
+            f"Custom pi-stomp package: {name}.",
+            "",
+            "Install this update to get the latest version.",
+            "On the device, package details from apt-cache",
+            "would appear here.",
+        ]
 
     def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
         all_domains: tuple[tuple[str, str], ...] = (

@@ -38,10 +38,11 @@ class TestPackageServices:
         result: list[str] = services_for_packages(["pistomp-recovery"])
         assert result == []
 
-    def test_all_pistomp_packages_have_entries(self) -> None:
-        from pistomp_recovery.constants import PISTOMP_PACKAGES
-        for pkg in PISTOMP_PACKAGES:
-            assert pkg in PACKAGE_SERVICES
+    def test_all_package_services_entries_are_known_services(self) -> None:
+        known: set[str] = set(PISTOMP_SERVICES)
+        for pkg, svcs in PACKAGE_SERVICES.items():
+            for svc in svcs:
+                assert svc in known, f"{pkg} maps to unknown service {svc!r}"
 
 
 class TestDomainFacets:

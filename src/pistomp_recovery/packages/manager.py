@@ -51,6 +51,23 @@ class PackageManager(Protocol):
         """Install a specific version of a package (for stamp/factory rollback)."""
         ...
 
+    def package_detail(self, name: str) -> list[str]:
+        """Return display lines for a package (description / first changelog entry).
+
+        Reads from the local package-manager cache — no internet required.
+        Returns an empty list when nothing is available.
+        """
+        ...
+
+    def discover_packages(self, origin: str) -> tuple[str, ...]:
+        """Return installed packages that come from the repo identified by `origin`.
+
+        `origin` is the repo-specific identifier (apt `Origin:` label or pacman
+        repo name). Returns an empty tuple when discovery is not supported or
+        the repo is not configured on this system.
+        """
+        ...
+
 
 class PacmanManager:
     """PackageManager backed by pacman (Arch Linux / Arch Linux ARM)."""
@@ -135,6 +152,15 @@ class PacmanManager:
             return False
         return True
 
+    def package_detail(self, name: str) -> list[str]:
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            ["pacman", "-Si", name], capture_output=True, text=True, check=False
+        )
+        for line in result.stdout.split("\n"):
+            if line.startswith("Description"):
+                return [line.split(":", 1)[1].strip()]
+        return []
+
     def install_version(self, name: str, version: str) -> bool:
         cache = Path("/var/cache/pacman/pkg")
         matches = sorted(cache.glob(f"{name}-{version}-*.pkg.tar*"))
@@ -149,6 +175,21 @@ class PacmanManager:
             logger.error("pacman version install failed: %s", result.stderr)
         logger.warning("Version %s for %s not found in cache", version, name)
         return False
+
+    def discover_packages(self, origin: str) -> tuple[str, ...]:
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            ["pacman", "-Sl", origin], capture_output=True, text=True, check=False
+        )
+        if result.returncode != 0:
+            logger.warning("pacman -Sl %s failed: %s", origin, result.stderr)
+            return ()
+        installed: list[str] = []
+        for line in result.stdout.splitlines():
+            # Format: <repo> <package> <version> [installed]
+            parts = line.split()
+            if len(parts) >= 4 and "[installed]" in parts[3:]:
+                installed.append(parts[1])
+        return tuple(installed)
 
 
 class AptManager:
@@ -274,6 +315,82 @@ class AptManager:
             logger.error("apt version install failed: %s", result.stderr)
             return False
         return True
+
+    def package_detail(self, name: str) -> list[str]:
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            ["apt-cache", "show", "--no-all-versions", name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        lines: list[str] = []
+        in_desc = False
+        for line in result.stdout.split("\n"):
+            if line.startswith("Description"):
+                in_desc = True
+                short = line.split(":", 1)[1].strip()
+                if short:
+                    lines.append(short)
+            elif in_desc:
+                if not line.startswith(" "):
+                    break
+                stripped = line[1:]
+                lines.append("" if stripped == "." else stripped)
+        return lines
+
+
+    def discover_packages(self, origin: str) -> tuple[str, ...]:
+        lists_dir = Path("/var/lib/apt/lists")
+        available: set[str] = set()
+        try:
+            # Find InRelease files whose Origin: header matches, then parse the
+            # corresponding binary Packages file to collect package names.
+            for release_file in lists_dir.glob("*_InRelease"):
+                try:
+                    content = release_file.read_text(errors="replace")
+                except OSError:
+                    continue
+                if not any(
+                    line.strip() == f"Origin: {origin}"
+                    for line in content.splitlines()
+                ):
+                    continue
+                # Derive the Packages file path: same URL prefix, different suffix.
+                # e.g. sastraxi.github.io_pi-gen-pistomp_dists_trixie_InRelease →
+                #      sastraxi.github.io_pi-gen-pistomp_dists_trixie_main_binary-arm64_Packages
+                prefix = release_file.name[: -len("_InRelease")]
+                for pkg_file in lists_dir.glob(f"{prefix}_*_Packages"):
+                    try:
+                        for line in pkg_file.read_text(errors="replace").splitlines():
+                            if line.startswith("Package: "):
+                                available.add(line[9:].strip())
+                    except OSError:
+                        continue
+        except OSError:
+            logger.warning("Could not scan %s for origin %r", lists_dir, origin)
+            return ()
+
+        if not available:
+            logger.warning("No packages found for apt origin %r", origin)
+            return ()
+
+        result: subprocess.CompletedProcess[str] = subprocess.run(
+            [
+                "dpkg-query",
+                "-W",
+                "-f=${Package}\t${db:Status-Abbrev}\n",
+                *sorted(available),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        installed: list[str] = []
+        for line in result.stdout.splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) == 2 and parts[1].startswith("ii"):
+                installed.append(parts[0])
+        return tuple(installed)
 
 
 def detect_package_manager() -> PacmanManager | AptManager:

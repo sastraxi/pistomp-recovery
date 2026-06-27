@@ -32,32 +32,13 @@ DEVICE_BRANCH: str = "device"
 
 FACET_NAMES: tuple[str, ...] = ("config", "pedalboards", "plugins", "packages", "boot")
 
-PISTOMP_PACKAGES: tuple[str, ...] = (
-    "jack2-pistomp",
-    "mod-host-pistomp",
-    "mod-midi-merger",
-    "mod-ttymidi",
-    "amidithru",
-    "fluidsynth-headless",
-    "libfluidsynth2-compat",
-    "lcd-splash",
-    "sfizz-pistomp",
-    "jack-capture",
-    "hylia",
-    "pi-stomp",
-    "mod-ui",
-    "pistomp-recovery",
-    "jackbridge",
-    "browsepy",
-    "ffmpeg-pistomp",
-    "touchosc2midi",
-    "lg-pistomp",
-)
+# apt Release file `Origin:` / `Label:` value for the pi-gen-pistomp custom repo.
+# Used by AptManager.discover_packages() to identify which installed packages
+# came from the pistomp repo (rather than Debian/Raspbian base).
+PISTOMP_APT_ORIGIN: str = "pistomp"
 
-# Debian package names mirror the Arch names — they're all custom packages in
-# a custom apt repo, so naming is up to the pi-gen-pistomp build. Adjust here
-# once the .deb names are finalised.
-PISTOMP_PACKAGES_DEBIAN: tuple[str, ...] = PISTOMP_PACKAGES
+# pacman repo name for the pi-gen-pistomp custom packages (Arch path).
+PISTOMP_PACMAN_REPO: str = "pistomp"
 
 # Which recovery domain each package's updates belong to. The four recovery
 # domains are pedalboards / plugins / config / system; all currently-tracked
@@ -77,11 +58,8 @@ DOMAIN_FACETS: dict[str, tuple[str, ...]] = {
     DOMAIN_SYSTEM: ("packages",),
 }
 
-PACKAGE_DOMAIN: dict[str, str] = {pkg: DOMAIN_SYSTEM for pkg in PISTOMP_PACKAGES}
-
-
 def domain_for_package(pkg: str) -> str:
-    return PACKAGE_DOMAIN.get(pkg, DOMAIN_SYSTEM)
+    return DOMAIN_SYSTEM
 
 
 PISTOMP_SERVICES: tuple[str, ...] = (

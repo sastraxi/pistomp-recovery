@@ -179,15 +179,13 @@ def make_package_facet(
     packages: tuple[str, ...] | None = None,
 ) -> PackageFacet:
     """Return a PackageFacet, auto-detecting the distro if manager is not given."""
-    from pistomp_recovery.constants import PISTOMP_PACKAGES, PISTOMP_PACKAGES_DEBIAN
-
     if manager is None:
         manager = detect_package_manager()
 
     if packages is None:
-        from pistomp_recovery.packages.manager import AptManager
+        from pistomp_recovery.constants import PISTOMP_APT_ORIGIN
 
-        packages = PISTOMP_PACKAGES_DEBIAN if isinstance(manager, AptManager) else PISTOMP_PACKAGES
+        packages = manager.discover_packages(PISTOMP_APT_ORIGIN)
 
     return PackageFacet(manager, packages)
 

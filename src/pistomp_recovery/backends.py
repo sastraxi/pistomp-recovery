@@ -38,7 +38,7 @@ class DisplayBackend(Protocol):
 
     def transfer_ms(self, rect: Box | None = None) -> float:
         """Estimated milliseconds to push ``rect`` (or the whole panel)."""
-        return 0.0
+        ...
 
 
 @runtime_checkable
@@ -79,24 +79,24 @@ class DataBackend(Protocol):
         Returns "" to fall back to the default count badge. Used by the plugins
         domain to surface the on-disk cache size instead of a change count.
         """
-        return ""
+        ...
 
     def has_internet(self) -> bool:
         """Return True if the device can reach the internet.
 
         Used before entering the Updates picker to decide whether to attempt a
         package-DB sync.  Implementations should be fast (TCP probe with a
-        short timeout).  The default returns True so non-network backends
-        behave as if connectivity is always present.
+        short timeout).
         """
-        return True
+        ...
 
     def refresh_package_db(self) -> None:
         """Sync the distro package database (apt-get update / pacman -Sy).
 
         Called from a background thread by the UI before loading the Updates
-        picker.  The default is a no-op.
+        picker.
         """
+        ...
 
     def install_packages(
         self,
@@ -107,6 +107,14 @@ class DataBackend(Protocol):
 
         Backends may run this on a worker thread; progress() must be safe to
         call from that thread.  The return value is True on success.
+        """
+        ...
+
+    def package_detail(self, name: str) -> list[str]:
+        """Return display lines for a package (description / changelog excerpt).
+
+        Read from the local package-manager cache — no network required.
+        Returns an empty list when nothing is available.
         """
         ...
 

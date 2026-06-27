@@ -92,6 +92,7 @@ class RealDataBackend(DataBackend):
     def __init__(self, manager: PackageManager) -> None:
         self._manager = manager
         self._internet: bool | None = None
+        self._update_items: list[Item] | None = None
 
     def has_internet(self) -> bool:
         if self._internet is None:
@@ -105,10 +106,41 @@ class RealDataBackend(DataBackend):
                 self._internet = False
         return self._internet
 
+    def _fetch_update_items(self) -> list[Item]:
+        """Run check_updates() and return the resulting Item list (no cache read/write)."""
+        out: list[Item] = []
+        for facet in self._facets_for("system"):
+            try:
+                out += facet.remote_updates()
+            except Exception:
+                logger.debug("Could not query system updates", exc_info=True)
+        return out
+
     def refresh_package_db(self) -> None:
         if not self.has_internet():
             return
         self._manager.sync_db()
+        # Pre-fetch and cache so domain_items() is instant after the sync.
+        self._update_items = self._fetch_update_items()
+
+    def package_detail(self, name: str) -> list[str]:
+        return self._manager.package_detail(name)
+
+    def _remove_from_update_cache(self, packages: list[str]) -> None:
+        """Drop installed packages from the cached update list."""
+        if self._update_items is None:
+            return
+        pkg_set = set(packages)
+        remaining = [it for it in self._update_items if it.name not in pkg_set and it.name != "all"]
+        if len(remaining) > 1:
+            remaining.append(Item(
+                name="all",
+                label="Update All",
+                dirty=False,
+                right=f"{len(remaining)} pkgs",
+                actions=[],
+            ))
+        self._update_items = remaining
 
     def domains(self, mode: str = "") -> tuple[tuple[str, str], ...]:
         all_domains: tuple[tuple[str, str], ...] = (
@@ -127,23 +159,25 @@ class RealDataBackend(DataBackend):
         return [f for key in DOMAIN_FACETS.get(domain, ()) if (f := facets.get(key)) is not None]
 
     def domain_items(self, mode: str, domain: str) -> list[Item]:
-        if mode == "updates" and self._internet is False:
-            has_packages = "packages" in DOMAIN_FACETS.get(domain, ())
-            if has_packages:
-                return [Item("_offline", "No internet", False, "", [])]
+        if mode == "updates":
+            if self._internet is False:
+                has_packages = "packages" in DOMAIN_FACETS.get(domain, ())
+                if has_packages:
+                    return [Item("_offline", "No internet", False, "", [])]
+            if domain == "system":
+                if self._update_items is not None:
+                    return self._update_items
+                result = self._fetch_update_items()
+                self._update_items = result
+                return result
+            return []
         out: list[Item] = []
         for facet in self._facets_for(domain):
-            if mode == "updates":
-                try:
-                    out += facet.remote_updates()
-                except Exception:
-                    logger.debug("Could not query %s updates", facet.name, exc_info=True)
-            else:
-                try:
-                    raw: list[Item] = facet.list_items()
-                except Exception:
-                    logger.debug("Could not list %s items", facet.name, exc_info=True)
-                    continue
+            try:
+                raw: list[Item] = facet.list_items()
+            except Exception:
+                logger.debug("Could not list %s items", facet.name, exc_info=True)
+                continue
                 wanted: str = (
                     "Rollback to stamp" if mode == "checkpoint" else "Rollback to factory"
                 )
@@ -173,6 +207,17 @@ class RealDataBackend(DataBackend):
             logger.debug("Could not compute plugins cache summary", exc_info=True)
             return ""
 
+    def _pkg_label(self, packages: list[str]) -> str:
+        """Short description of the package(s) being installed, for status lines."""
+        if len(packages) == 1:
+            pkg = packages[0]
+            new_ver = next(
+                (it.right.lstrip("↑") for it in (self._update_items or []) if it.name == pkg),
+                "",
+            )
+            return f"{pkg} → {new_ver}" if new_ver else pkg
+        return f"{len(packages)} packages"
+
     def install_packages(
         self,
         packages: list[str],
@@ -182,17 +227,18 @@ class RealDataBackend(DataBackend):
         result: list[bool] = []
 
         def _run() -> None:
-            progress("Downloading...", 0.0, f"Downloading {len(packages)} package(s)...", False)
+            label = self._pkg_label(packages)
+            progress("Downloading", 0.0, label, False)
             if not self._manager.download(packages):
-                progress("Download failed", 0.0, "Download failed. Click to continue.", True)
+                progress("Download failed", 0.0, "Click to continue.", True)
                 result.append(False)
                 return
 
-            progress("Installing...", 0.5, f"Installing {len(packages)} package(s)...", False)
+            progress("Installing", 0.5, label, False)
             if not self._manager.install(packages):
-                progress("Rolling back...", 0.5, "Install failed, rolling back...", False)
+                progress("Rolling back", 0.5, "Install failed — restoring...", False)
                 self._manager.install_from_cache(packages)
-                progress("Install failed", 0.0, "Install failed. Click to continue.", True)
+                progress("Install failed", 0.0, "Click to continue.", True)
                 result.append(False)
                 return
 
@@ -206,15 +252,16 @@ class RealDataBackend(DataBackend):
                 == 0
             ]
             for svc in to_restart:
-                progress(f"Restarting {svc}...", 0.95, f"Restarting {svc}...", False)
+                progress("Restarting", 0.95, svc, False)
                 subprocess.run(["sudo", "systemctl", "restart", svc], check=False)
 
             if "pistomp-recovery" in packages:
-                progress("Restarting recovery...", 1.0, "Restarting recovery...", False)
+                progress("Restarting", 1.0, "pistomp-recovery", False)
                 subprocess.run(["sudo", "systemctl", "restart", "pistomp-recovery"], check=False)
                 return
 
-            progress("Update complete", 1.0, "Done. Click to continue.", True)
+            self._remove_from_update_cache(packages)
+            progress("Done", 1.0, "Click to continue.", True)
             result.append(True)
 
         threading.Thread(target=_run, daemon=True).start()
