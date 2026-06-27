@@ -364,7 +364,7 @@ class RecoveryAppCore:
     def badge(mode: str, count: int) -> str:
         if count == 0:
             return ""
-        return f"{count} available" if mode == MODE_UPDATES else f"{count} changed"
+        return f"{count} available"
 
     def _build_domain_rows(self, items: list[Item], mode: str, domain: str) -> list[Row]:
         """Build the row list for a domain screen, handling 'all' and special items."""
