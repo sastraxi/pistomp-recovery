@@ -62,52 +62,45 @@ def domain_for_package(pkg: str) -> str:
     return DOMAIN_SYSTEM
 
 
-PISTOMP_SERVICES: tuple[str, ...] = (
-    "jack",
-    "mod-host",
-    "mod-ui",
-    "mod-ala-pi-stomp",
-    "mod-amidithru",
-    "browsepy",
-    "mod-touchosc2midi",
-)
-
+# Maps each package to the services that must be restarted after it is updated.
+# Packages not listed here default to no restarts (conservative non-disruptive).
+# Dict order determines the restart sequence (jack → mod-host → … → browsepy);
+# pistomp_services() derives the full ordered service list from these values.
 PACKAGE_SERVICES: dict[str, list[str]] = {
     "jack2-pistomp": ["jack", "mod-host", "mod-ui", "mod-ala-pi-stomp"],
     "mod-host-pistomp": ["mod-host", "mod-ui", "mod-ala-pi-stomp"],
     "mod-ui": ["mod-ui"],
     "pi-stomp": ["mod-ala-pi-stomp"],
-    "pistomp-recovery": [],
     "mod-midi-merger": ["mod-host"],
     "mod-ttymidi": ["mod-host"],
-    "amidithru": ["jack"],
+    "amidithru": ["mod-amidithru"],
     "fluidsynth-headless": ["jack"],
-    "libfluidsynth2-compat": [],
-    "lcd-splash": [],
     "sfizz-pistomp": ["jack"],
     "jack-capture": ["jack"],
     "hylia": ["jack"],
-    "jackbridge": [],
     "browsepy": ["browsepy"],
-    "ffmpeg-pistomp": [],
     "touchosc2midi": ["mod-touchosc2midi"],
-    "lg-pistomp": [],
 }
 
 
-PACKAGE_SERVICES_DEBIAN: dict[str, list[str]] = PACKAGE_SERVICES
+def pistomp_services() -> list[str]:
+    """All pi-stomp systemd services in restart order, derived from PACKAGE_SERVICES."""
+    seen: list[str] = []
+    for svcs in PACKAGE_SERVICES.values():
+        for s in svcs:
+            if s not in seen:
+                seen.append(s)
+    return seen
 
 
 def services_for_packages(packages: list[str]) -> list[str]:
+    chain = pistomp_services()
     seen: set[str] = set()
     extras: list[str] = []
-    chain: list[str] = list(PISTOMP_SERVICES)
     for pkg in packages:
-        svcs: list[str] = PACKAGE_SERVICES.get(pkg, chain)
-        for svc in svcs:
+        for svc in PACKAGE_SERVICES.get(pkg, []):
             if svc not in seen:
                 seen.add(svc)
                 if svc not in chain:
                     extras.append(svc)
-    ordered: list[str] = [svc for svc in chain if svc in seen]
-    return ordered + extras
+    return [svc for svc in chain if svc in seen] + extras

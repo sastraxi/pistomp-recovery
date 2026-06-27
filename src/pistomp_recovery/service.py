@@ -8,7 +8,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
-from pistomp_recovery.constants import PISTOMP_SERVICES
+from pistomp_recovery.constants import pistomp_services
 from pistomp_recovery.packages.health import service_journal, service_last_result, service_status
 
 logger = logging.getLogger(__name__)
@@ -97,10 +97,11 @@ def start_main_app() -> bool:
     ``--no-block``just queues them: when we exit, they are unblocked.
     """
     logger.info("Resetting failure state and starting mod-ala-pi-stomp")
-    for svc in PISTOMP_SERVICES:
+    all_svcs = pistomp_services()
+    for svc in all_svcs:
         subprocess.run(["sudo", "systemctl", "reset-failed", svc], check=False)
 
-    for svc in PISTOMP_SERVICES:
+    for svc in all_svcs:
         if svc == "mod-ala-pi-stomp":
             continue
         subprocess.run(["sudo", "systemctl", "start", "--no-block", svc], check=False)

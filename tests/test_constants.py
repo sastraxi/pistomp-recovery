@@ -6,7 +6,7 @@ from pistomp_recovery.constants import (
     DOMAIN_FACETS,
     FACET_NAMES,
     PACKAGE_SERVICES,
-    PISTOMP_SERVICES,
+    pistomp_services,
     services_for_packages,
 )
 
@@ -20,9 +20,9 @@ class TestPackageServices:
         result: list[str] = services_for_packages(["pi-stomp"])
         assert result == ["mod-ala-pi-stomp"]
 
-    def test_unknown_package_returns_full_chain(self) -> None:
+    def test_unknown_package_returns_empty(self) -> None:
         result: list[str] = services_for_packages(["some-unknown-pkg"])
-        assert result == list(PISTOMP_SERVICES)
+        assert result == []
 
     def test_multiple_packages_ordered(self) -> None:
         result: list[str] = services_for_packages(
@@ -39,7 +39,7 @@ class TestPackageServices:
         assert result == []
 
     def test_all_package_services_entries_are_known_services(self) -> None:
-        known: set[str] = set(PISTOMP_SERVICES)
+        known: set[str] = set(pistomp_services())
         for pkg, svcs in PACKAGE_SERVICES.items():
             for svc in svcs:
                 assert svc in known, f"{pkg} maps to unknown service {svc!r}"
