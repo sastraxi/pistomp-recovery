@@ -9,6 +9,7 @@ the same core with different backends.
 from __future__ import annotations
 
 import logging
+import textwrap
 import threading
 import time
 from typing import Callable
@@ -16,7 +17,7 @@ from typing import Callable
 import pygame
 
 from pistomp_recovery.backends import AppBackends
-from pistomp_recovery.constants import LCD_HEIGHT, LCD_WIDTH
+from pistomp_recovery.constants import DOMAIN_SYSTEM, LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.items import Item, Row, Target
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.screens import Screen
@@ -266,7 +267,7 @@ class RecoveryAppCore:
                 (
                     Target(
                         "Updates",
-                        lambda: self._show_domain_picker(MODE_UPDATES),
+                        self._show_updates_menu,
                     ),
                 )
             ),
@@ -293,9 +294,6 @@ class RecoveryAppCore:
         self._push_menu(title, rows, back=False)
 
     def _show_domain_picker(self, mode: str) -> None:
-        if mode == MODE_UPDATES:
-            self._show_updates_picker()
-            return
         rows: list[Row] = []
         for domain, label in self._backends.data.domains(mode):
             items = self._backends.data.domain_items(mode, domain)
@@ -316,21 +314,25 @@ class RecoveryAppCore:
             reload_callback=lambda m=mode: self._refresh_domain_picker(m),
         )
 
-    def _show_updates_picker(self) -> None:
-        picker = self._push_menu(
+    def _show_updates_menu(self) -> None:
+        """Push the updates list directly, skipping the domain picker."""
+        menu = self._push_menu(
             _MODE_TITLES[MODE_UPDATES],
             [],
             back=True,
             mode=MODE_UPDATES,
-            reload_callback=lambda: self._refresh_domain_picker(MODE_UPDATES),
+            domain=DOMAIN_SYSTEM,
+            reload_callback=lambda: self._refresh_domain(MODE_UPDATES, DOMAIN_SYSTEM),
         )
-        picker.set_progress("Checking for updates...", 0.0, "Checking for updates...", done=False)
+        menu.set_progress(_MODE_TITLES[MODE_UPDATES], 0.0, "Wait a few seconds...", done=False)
         self._mark_dirty(None)
 
         def _run() -> None:
             self._backends.data.refresh_package_db()
-            self._refresh_domain_picker(MODE_UPDATES, picker=picker)
-            picker.clear_progress()
+            items = self._backends.data.domain_items(MODE_UPDATES, DOMAIN_SYSTEM)
+            rows = self._build_domain_rows(items, MODE_UPDATES, DOMAIN_SYSTEM)
+            menu.set_rows(rows)
+            menu.clear_progress()
             self._mark_dirty(None)
 
         threading.Thread(target=_run, daemon=True).start()
@@ -341,25 +343,32 @@ class RecoveryAppCore:
             return ""
         return f"{count} available" if mode == MODE_UPDATES else f"{count} changed"
 
+    def _build_domain_rows(self, items: list[Item], mode: str, domain: str) -> list[Row]:
+        """Build the row list for a domain screen, handling 'all' and special items."""
+        if not items:
+            empty = "No updates available" if mode == MODE_UPDATES else "Nothing to reset"
+            return [Row((Target(empty, lambda: None, enabled=False),))]
+        pkg_names = [it.name for it in items if it.name != "all"]
+        rows: list[Row] = []
+        for it in items:
+            if it.name == "all":
+                target = Target(
+                    it.label,
+                    lambda names=pkg_names: self._install_packages(names),
+                    confirm=f"Update all {len(pkg_names)} packages?",
+                )
+            elif it.name.startswith("_"):
+                # Informational/error items (e.g. "_offline" for no internet)
+                target = Target(it.label, lambda: None, enabled=False)
+            else:
+                target = self._item_target(it, mode, domain)
+            rows.append(Row((target,), right=it.right))
+        return rows
+
     def _show_domain(self, mode: str, domain: str) -> None:
         items: list[Item] = self._backends.data.domain_items(mode, domain)
         domain_label: str = self._domain_label(domain)
-        if not items:
-            empty: str = "No updates" if mode == MODE_UPDATES else "Nothing to reset"
-            rows: list[Row] = [Row((Target(empty, lambda: None, enabled=False),))]
-        else:
-            pkg_names = [it.name for it in items if it.name != "all"]
-            rows = []
-            for it in items:
-                if it.name == "all":
-                    target = Target(
-                        it.label,
-                        lambda names=pkg_names: self._install_packages(names),
-                        confirm=f"Update all {len(pkg_names)} packages?",
-                    )
-                else:
-                    target = self._item_target(it, mode, domain)
-                rows.append(Row((target,), right=it.right))
+        rows = self._build_domain_rows(items, mode, domain)
         self._push_menu(
             domain_label,
             rows,
@@ -386,8 +395,7 @@ class RecoveryAppCore:
                 )
             return Target(
                 item.label,
-                lambda: self._install_packages([item.name]),
-                confirm=f"Update {item.name}?",
+                lambda it=item: self._show_package_detail(it, mode, domain),
             )
         if not item.actions:
             return Target(item.label, lambda: None, enabled=False)
@@ -402,6 +410,49 @@ class RecoveryAppCore:
             item.label,
             lambda: self._show_item_detail(item, mode, domain),
         )
+
+    def _show_package_detail(self, item: Item, mode: str, domain: str) -> None:
+        """Push a detail screen showing description/changelog then an Install button."""
+        name = item.name
+        old_ver = item.label.removeprefix(name).strip()
+        new_ver = item.right.lstrip("↑")
+
+        install_target = Target(
+            "Install",
+            lambda: self._install_packages([name]),
+        )
+
+        def reload_cb() -> None:
+            self.pop_screen()
+            self._refresh_domain(mode, domain)
+
+        menu = self._push_menu(
+            name,
+            [],
+            back=True,
+            mode=mode,
+            domain=domain,
+            reload_callback=reload_cb,
+        )
+        menu.set_progress(name, 0.0, "Loading...", done=False)
+        self._mark_dirty(None)
+
+        def _run() -> None:
+            detail = self._backends.data.package_detail(name)
+            rows: list[Row] = [
+                Row(prefix=f"{old_ver} → {new_ver}"),
+                Row(prefix="---", separator=True),
+            ]
+            for line in detail:
+                for wrapped in textwrap.wrap(line, 38) or [""]:
+                    rows.append(Row(prefix=wrapped))
+            rows.append(Row(prefix="---", separator=True))
+            rows.append(Row((install_target,)))
+            menu.set_rows(rows)
+            menu.clear_progress()
+            self._mark_dirty(None)
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _wrap_with_refresh(
         self,
@@ -462,9 +513,7 @@ class RecoveryAppCore:
             self.pop_screen()
             self._refresh_current_screen()
             return
-        rows: list[Row] = [
-            Row((self._item_target(it, mode, domain),), right=it.right) for it in items
-        ]
+        rows = self._build_domain_rows(items, mode, domain)
         menu.set_rows(rows)
         # Keep the parent picker badges accurate as well.
         for s in reversed(self._screen_stack[:-1]):

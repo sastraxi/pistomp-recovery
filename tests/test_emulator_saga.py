@@ -144,32 +144,35 @@ class TestFactoryResetConfig:
 class TestSystemDomainPackages:
     """System domain now maps to the packages facet."""
 
-    def test_updates_shows_package_updates_under_system(
+    def test_updates_shows_package_updates_directly(
         self, emulator_harness: AppHarness
     ) -> None:
-        """Updates → System shows package updates (previously orphaned)."""
+        """Updates navigates directly to the package list (no domain-picker hop)."""
         harness = emulator_harness
 
         harness.select("Updates")
         harness.drain()
-        harness.select("System")
-        harness.inject()
         rows = harness.row_labels()
         assert any("jack2-pistomp" in r for r in rows), (
-            f"jack2-pistomp not in System updates: {rows}"
+            f"jack2-pistomp not in updates list: {rows}"
         )
         assert any("mod-ui" in r for r in rows), (
-            f"mod-ui not in System updates: {rows}"
+            f"mod-ui not in updates list: {rows}"
         )
 
-    def test_updates_picker_shows_only_system(self, emulator_harness: AppHarness) -> None:
-        """Updates picker only shows System; pedalboards/plugins/config are excluded."""
+    def test_updates_skips_domain_picker(self, emulator_harness: AppHarness) -> None:
+        """Selecting Updates lands directly on the package list, not a domain picker."""
         harness = emulator_harness
 
         harness.select("Updates")
         harness.drain()
         labels = harness.row_labels()
-        assert labels == ["System"], f"unexpected Updates picker labels: {labels}"
+        assert not any(label == "System" for label in labels), (
+            f"domain picker still showing: {labels}"
+        )
+        assert any("jack2-pistomp" in label or "mod-ui" in label for label in labels), (
+            f"expected package rows, got: {labels}"
+        )
 
     def test_factory_reset_system_shows_package_items(
         self, emulator_harness: AppHarness

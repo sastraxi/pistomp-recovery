@@ -53,9 +53,13 @@ def test_domain_screen_refreshes_after_successful_action(
     harness.inject()
     assert harness.row_labels() == ["a 0.1"]
 
-    # Click the update item, confirm the dialog, then dismiss the done screen.
+    # Click the update item → detail screen (async load), then install + confirm.
     harness.select("a 0.1")
-    harness.inject(InputEvent.RIGHT, InputEvent.CLICK, InputEvent.CLICK)
+    harness.drain()  # wait for package_detail loading thread
+
+    harness.select("Install")
+    harness.inject(InputEvent.RIGHT, InputEvent.CLICK)  # Yes → confirm
+    harness.inject(InputEvent.CLICK)  # dismiss the done screen
 
     # Dismissing the done screen should re-query the domain. Because the
     # domain is now empty, the app pops back to the menu below it.
