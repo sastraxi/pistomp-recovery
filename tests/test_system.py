@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from pistomp_recovery import system
+from pistomp_recovery.file_facet import FileFacet
 
 
 @pytest.fixture
-def system_facet(tmp_path: Path) -> system.FileFacet:
+def system_facet(tmp_path: Path) -> FileFacet:
     """Return an isolated system FileFacet backed by temp directories."""
     source = tmp_path / "system"
     repo = tmp_path / "system.git"
@@ -34,7 +34,7 @@ def system_facet(tmp_path: Path) -> system.FileFacet:
         "asound.state": str(var / "asound.state"),
     }
 
-    return system.FileFacet(
+    return FileFacet(
         name="system",
         repo_dir=repo,
         files=tuple(test_files.keys()),

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pistomp_recovery.facet import all_facets, register_default_facets
 
-FACET_ORDER: tuple[str, ...] = ("pedalboards", "plugins", "packages", "config", "system")
+FACET_ORDER: tuple[str, ...] = ("pedalboards", "plugins", "packages", "config", "boot")
 
 
 def cmd_stamp(args: argparse.Namespace) -> None:
@@ -22,8 +22,9 @@ def cmd_stamp(args: argparse.Namespace) -> None:
         facet = facets.get(name)
         if facet is None:
             continue
-        if name == "pedalboards" and args.pedalboard:
-            name_arg = Path(args.pedalboard).name
+        pedalboard_arg = args.pedalboard or getattr(args, "bundle", None)
+        if name == "pedalboards" and pedalboard_arg:
+            name_arg = Path(pedalboard_arg).name
             tag: str | None = facet.stamp_item(name_arg)  # type: ignore[union-attr]
             if tag:
                 print(f"stamped {name}/{name_arg}: {tag[:8]}")
@@ -66,6 +67,12 @@ def main(args: list[str] | None = None) -> None:
 
     stamp_parser = sub.add_parser("stamp", help="Stamp current state as known-good")
     stamp_parser.add_argument(
+        "bundle",
+        nargs="?",
+        default=None,
+        help="Pedalboard bundle path to stamp individually (positional form of --pedalboard)",
+    )
+    stamp_parser.add_argument(
         "--pedalboard",
         type=str,
         default=None,
@@ -80,14 +87,7 @@ def main(args: list[str] | None = None) -> None:
 
     sub.add_parser("status", help="Show dirty state across all facets")
 
-    # Backwards compatibility: allow positional form for stamp.
-    # `pistomp-stamp stamp <bundle>` → treats <bundle> as --pedalboard.
     parsed = parser.parse_args(args)
-    if parsed.command == "stamp" and parsed.pedalboard is None and len(args or []) > 1:
-        # Check if the second arg (after "stamp") is a path, not a flag.
-        positional = [a for a in (args or [])[1:] if not a.startswith("-")]
-        if positional:
-            parsed.pedalboard = positional[0]
 
     register_default_facets()
 
