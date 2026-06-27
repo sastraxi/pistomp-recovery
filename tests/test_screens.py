@@ -31,7 +31,7 @@ from tests.conftest import (
 def test_badge() -> None:
     assert RecoveryAppCore.badge("updates", 2) == "2 available"
     assert RecoveryAppCore.badge("updates", 0) == ""
-    assert RecoveryAppCore.badge("checkpoint", 3) == "3 changed"
+    assert RecoveryAppCore.badge("checkpoint", 3) == "3 available"
     assert RecoveryAppCore.badge("checkpoint", 0) == ""
 
 
@@ -314,30 +314,90 @@ def test_plugins_factory_picker_shows_cache_badge(
 
     # 12 plugins: 8 stamped, 2 unstamped+dirty, 2 factory.
     plugins: list[Item] = [
-        Item("stamped-amp.lv2", "stamped-amp.lv2", False, "2d ago",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("stamped-delay.lv2", "stamped-delay.lv2", False, "5h ago",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("stamped-reverb.lv2", "stamped-reverb.lv2", False, "1d ago",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("stamped-chorus.lv2", "stamped-chorus.lv2", False, "3d ago",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("stamped-flanger.lv2", "stamped-flanger.lv2", False, "6h ago",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("stamped-comp.lv2", "stamped-comp.lv2", False, "just now",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("stamped-eq.lv2", "stamped-eq.lv2", False, "2h ago",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("stamped-dist.lv2", "stamped-dist.lv2", False, "4d ago",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("dirty-trem.lv2", "dirty-trem.lv2", True, "12 KB",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("dirty-wah.lv2", "dirty-wah.lv2", True, "8 KB",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("factory-tuner.lv2", "factory-tuner.lv2", False, "factory",
-             [Action("Rollback to factory", lambda: None)]),
-        Item("factory-noise.lv2", "factory-noise.lv2", False, "factory",
-             [Action("Rollback to factory", lambda: None)]),
+        Item(
+            "stamped-amp.lv2",
+            "stamped-amp.lv2",
+            False,
+            "2d ago",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "stamped-delay.lv2",
+            "stamped-delay.lv2",
+            False,
+            "5h ago",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "stamped-reverb.lv2",
+            "stamped-reverb.lv2",
+            False,
+            "1d ago",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "stamped-chorus.lv2",
+            "stamped-chorus.lv2",
+            False,
+            "3d ago",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "stamped-flanger.lv2",
+            "stamped-flanger.lv2",
+            False,
+            "6h ago",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "stamped-comp.lv2",
+            "stamped-comp.lv2",
+            False,
+            "just now",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "stamped-eq.lv2",
+            "stamped-eq.lv2",
+            False,
+            "2h ago",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "stamped-dist.lv2",
+            "stamped-dist.lv2",
+            False,
+            "4d ago",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "dirty-trem.lv2",
+            "dirty-trem.lv2",
+            True,
+            "12 KB",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "dirty-wah.lv2",
+            "dirty-wah.lv2",
+            True,
+            "8 KB",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "factory-tuner.lv2",
+            "factory-tuner.lv2",
+            False,
+            "factory",
+            [Action("Rollback to factory", lambda: None)],
+        ),
+        Item(
+            "factory-noise.lv2",
+            "factory-noise.lv2",
+            False,
+            "factory",
+            [Action("Rollback to factory", lambda: None)],
+        ),
     ]
     fake_data.set_items("factory", "plugins", plugins)
     fake_data.set_domain_summary("factory", "plugins", "34 MB")
@@ -387,7 +447,7 @@ def test_picker_badge_refreshes_after_domain_action(
     harness.select("Reset to Checkpoint")
     picker = harness._menu()
     assert picker is not None
-    assert picker._rows[0].right == "1 changed"
+    assert picker._rows[0].right == "1 available"
 
     harness.select("Pedalboards")
     harness.select("dirty.pedalboard")
