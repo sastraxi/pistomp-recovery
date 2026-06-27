@@ -303,10 +303,10 @@ def test_update_items_are_selectable_with_empty_actions(
     assert all(target.enabled for row in menu._rows for target in row.targets)
 
 
-def test_plugins_factory_picker_shows_cache_badge(
+def test_plugins_factory_picker_shows_count_badge(
     recovery_app: AppHarness, snapshot: Callable[..., None]
 ) -> None:
-    """Factory Reset → Plugins shows the cache size badge from domain_summary."""
+    """Factory Reset → Plugins shows the factory plugin count badge from domain_summary."""
     harness = recovery_app
     harness.app._screen_stack.clear()
     fake_data = harness.app._backends.data
@@ -400,7 +400,7 @@ def test_plugins_factory_picker_shows_cache_badge(
         ),
     ]
     fake_data.set_items("factory", "plugins", plugins)
-    fake_data.set_domain_summary("factory", "plugins", "34 MB")
+    fake_data.set_domain_summary("factory", "plugins", "517")
 
     harness.app._show_domain_picker("factory")
     harness.inject()
@@ -408,17 +408,14 @@ def test_plugins_factory_picker_shows_cache_badge(
 
     menu = harness._menu()
     assert menu is not None
-    assert menu._rows[1].right == "34 MB"  # plugins badge
+    assert menu._rows[1].right == "517"  # factory plugin count badge
 
-    # Navigate into plugins.
+    # Navigate into plugins → should open factory restore menu, not plugin list.
     harness.select("Plugins")
     snapshot("plugins_list")
 
     labels = harness.row_labels()
-    assert "stamped-amp.lv2" in labels
-    assert "dirty-trem.lv2" in labels
-    assert "factory-tuner.lv2" in labels
-    assert len(labels) == 12
+    assert labels == ["Reset all factory plugins"]
 
 
 def test_picker_badge_refreshes_after_domain_action(

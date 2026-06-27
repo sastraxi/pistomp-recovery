@@ -209,14 +209,36 @@ class RealDataBackend(DataBackend):
         if domain != "plugins" or mode != "factory":
             return ""
         facet = all_facets().get("plugins")
-        cache_summary = getattr(facet, "cache_summary", None)
-        if facet is None or cache_summary is None:
+        if facet is None:
             return ""
         try:
-            return cache_summary()
+            count: int = facet.factory_plugin_count()  # type: ignore[attr-defined]
+            return str(count) if count else ""  # type: ignore[arg-type]
         except Exception:
-            logger.debug("Could not compute plugins cache summary", exc_info=True)
+            logger.debug("Could not compute factory plugin count", exc_info=True)
             return ""
+
+    def factory_plugin_size(self) -> int | None:
+        facet = all_facets().get("plugins")
+        if facet is None:
+            return None
+        try:
+            return facet.fetch_factory_size()  # type: ignore[attr-defined]
+        except Exception:
+            logger.debug("Could not fetch factory plugin size", exc_info=True)
+            return None
+
+    def reset_factory_plugins(self, progress: ProgressCallback) -> bool:
+        facet = all_facets().get("plugins")
+        if facet is None:
+            progress("Failed", 0.0, "Plugin facet not available.", True)
+            return False
+
+        def _run() -> None:
+            facet.reset_factory_plugins(progress)  # type: ignore[attr-defined]
+
+        threading.Thread(target=_run, daemon=True).start()
+        return True
 
     def _pkg_label(self, packages: list[str]) -> str:
         """Short description of the package(s) being installed, for status lines."""

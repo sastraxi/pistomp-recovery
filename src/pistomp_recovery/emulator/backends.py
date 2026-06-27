@@ -267,7 +267,23 @@ class EmulatorDataBackend(DataBackend):
         shutil.rmtree(self._root, ignore_errors=True)
 
     def domain_summary(self, mode: str, domain: str) -> str:
+        if domain == "plugins" and mode == "factory":
+            return "42"
         return ""
+
+    def factory_plugin_size(self) -> int | None:
+        return 925_338_844
+
+    def reset_factory_plugins(self, progress: ProgressCallback) -> bool:
+        def _run() -> None:
+            steps = 8
+            for i in range(1, steps + 1):
+                progress("Downloading", i / steps, f"bundle_{i:03d}.lv2", False)
+                time.sleep(0.2)
+            progress("Done", 1.0, "Click to continue.", True)
+
+        threading.Thread(target=_run, daemon=True).start()
+        return True
 
     def has_internet(self) -> bool:
         return True

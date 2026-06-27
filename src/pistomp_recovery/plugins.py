@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import logging
 import shutil
+import tarfile
+import urllib.request
 from pathlib import Path
+from typing import Callable
 
 from pistomp_recovery.constants import (
     FACTORY_LV2_BUNDLES_FILE,
+    LV2_PLUGINS_URL,
     PATCHSTORAGE_MARKER,
     PLUGINS_CACHE_WARN_BYTES,
     PLUGINS_DIR,
@@ -14,6 +18,8 @@ from pistomp_recovery.constants import (
 from pistomp_recovery.facet import RollbackTarget
 from pistomp_recovery.items import Action, Item
 from pistomp_recovery.util import human_size
+
+ProgressCallback = Callable[[str, float, str, bool], None]
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +266,66 @@ class PluginFacet:
         # the user-installed bundle." Factory plugins live in the system LV2
         # path and are unaffected.
         self.remove_bundle(name)
+
+    # -- factory plugin restore ----------------------------------------------
+
+    def factory_plugin_count(self) -> int:
+        """Count of factory plugin bundles (from allowlist, or dir scan fallback)."""
+        names = self._factory_names()
+        if names:
+            return len(names)
+        if not self.path.is_dir():
+            return 0
+        return sum(
+            1 for e in self.path.iterdir()
+            if e.is_dir() and not (e / PATCHSTORAGE_MARKER).is_file()
+        )
+
+    def fetch_factory_size(self) -> int | None:
+        """HEAD the factory archive URL; return Content-Length in bytes, or None."""
+        try:
+            req = urllib.request.Request(LV2_PLUGINS_URL, method="HEAD")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                cl = resp.headers.get("Content-Length")
+                return int(cl) if cl else None
+        except Exception:
+            logger.debug("Could not fetch factory archive size", exc_info=True)
+            return None
+
+    def reset_factory_plugins(self, progress: ProgressCallback) -> bool:
+        """Stream-download and untar the factory plugin archive over PLUGINS_DIR.
+
+        Extracts additively — existing bundles not in the archive are untouched.
+        """
+        try:
+            progress("Connecting", 0.0, "Opening download...", False)
+            resp = urllib.request.urlopen(LV2_PLUGINS_URL, timeout=60)
+            total = int(resp.headers.get("Content-Length") or 0)
+            read_so_far = [0]
+
+            class _Reader:
+                def read(self, n: int) -> bytes:
+                    chunk = resp.read(n)
+                    read_so_far[0] += len(chunk)
+                    return chunk
+
+            dest = self.path.resolve().parent
+            dest.mkdir(parents=True, exist_ok=True)
+
+            with tarfile.open(fileobj=_Reader(), mode="r|gz") as tf:  # type: ignore[arg-type]
+                for member in tf:  # type: ignore[assignment]
+                    tf.extract(member, path=dest, filter="data")  # type: ignore[call-arg]
+                    if total:
+                        frac = min(read_so_far[0] / total, 0.99)
+                        name: str = str(member.name).split("/")[-1] or "..."  # type: ignore[attr-defined]
+                        progress("Downloading", frac, name, False)
+
+            progress("Done", 1.0, "Click to continue.", True)
+            return True
+        except Exception:
+            logger.exception("Factory plugin reset failed")
+            progress("Failed", 0.0, "Click to continue.", True)
+            return False
 
 
 def make_plugin_facet(

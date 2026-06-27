@@ -125,6 +125,18 @@ class DataBackend(Protocol):
         """
         ...
 
+    def factory_plugin_size(self) -> int | None:
+        """HEAD the factory plugin archive; return Content-Length in bytes, or None."""
+        ...
+
+    def reset_factory_plugins(self, progress: ProgressCallback) -> bool:
+        """Stream-download and untar the factory plugin archive over the LV2 dir.
+
+        Extracts additively. May run on a worker thread; progress() must be safe
+        to call from that thread.  Returns True on success.
+        """
+        ...
+
 
 @runtime_checkable
 class ServiceBackend(Protocol):

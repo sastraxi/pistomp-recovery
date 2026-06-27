@@ -228,6 +228,14 @@ class FakeDataBackend(DataBackend):
     def package_detail(self, name: str) -> list[str]:
         return []
 
+    def factory_plugin_size(self) -> int | None:
+        return None
+
+    def reset_factory_plugins(
+        self, progress: Callable[[str, float, str, bool], None]
+    ) -> bool:
+        return True
+
 
 # ---------------------------------------------------------------------------
 # FakeServiceBackend — stub lifecycle and crash info

@@ -17,7 +17,7 @@ from typing import Callable
 import pygame
 
 from pistomp_recovery.backends import AppBackends
-from pistomp_recovery.constants import DOMAIN_SYSTEM, LCD_HEIGHT, LCD_WIDTH
+from pistomp_recovery.constants import DOMAIN_PLUGINS, DOMAIN_SYSTEM, LCD_HEIGHT, LCD_WIDTH
 from pistomp_recovery.items import Item, Row, Target
 from pistomp_recovery.service import BootMode, CrashInfo
 from pistomp_recovery.ui.screens import Screen
@@ -25,6 +25,7 @@ from pistomp_recovery.ui.screens.crash import CrashScreen
 from pistomp_recovery.ui.screens.menu_screen import MenuScreen
 from pistomp_recovery.ui.widgets.header import ICON_BACK, ICON_EXIT
 from pistomp_recovery.ui.widgets.misc import Box, InputEvent
+from pistomp_recovery.util import human_size
 
 _RESTART_MAX_COLS: int = 38
 
@@ -270,9 +271,7 @@ class RecoveryAppCore:
         if unverified:
             n = len(unverified)
             label = f"{n} package{'s' if n != 1 else ''} unverified"
-            rows.append(
-                Row((Target(label, lambda u=unverified: self._show_unverified_menu(u)),))
-            )
+            rows.append(Row((Target(label, lambda u=unverified: self._show_unverified_menu(u)),)))
         rows += [
             Row(
                 (
@@ -310,18 +309,24 @@ class RecoveryAppCore:
         threading.Thread(target=_check, daemon=True).start()
 
     def _show_unverified_menu(self, unverified: tuple[str, ...]) -> None:
-        rows: list[Row] = [
-            Row(prefix=name)
-            for name in unverified
-        ]
+        rows: list[Row] = [Row(prefix=name) for name in unverified]
         self._push_menu("Unverified Packages", rows, back=True)
 
     def _show_domain_picker(self, mode: str) -> None:
         rows: list[Row] = []
         for domain, label in self._backends.data.domains(mode):
+            if mode == MODE_FACTORY and domain == DOMAIN_PLUGINS:
+                summary = self._backends.data.domain_summary(mode, domain)
+                rows.append(
+                    Row(
+                        (Target(label, self._show_factory_plugins_menu),),
+                        right=summary,
+                    )
+                )
+                continue
             items = self._backends.data.domain_items(mode, domain)
             count = sum(1 for it in items if it.name != "all")
-            summary: str = self._backends.data.domain_summary(mode, domain)
+            summary = self._backends.data.domain_summary(mode, domain)
             right: str = summary or self.badge(mode, count)
             rows.append(
                 Row(
@@ -336,6 +341,31 @@ class RecoveryAppCore:
             mode=mode,
             reload_callback=lambda m=mode: self._refresh_domain_picker(m),
         )
+
+    def _show_factory_plugins_menu(self) -> None:
+        menu = self._push_menu("Factory Plugins", [], back=True)
+        menu.set_progress("Factory Plugins", 0.0, "Checking download size...", done=False)
+        self._mark_dirty(None)
+
+        def _fetch() -> None:
+            size = self._backends.data.factory_plugin_size()
+            size_str = human_size(size) if size is not None else "unknown size"
+            confirm = f"Reset all factory plugins?\n{size_str} download"
+
+            def _do_reset() -> None:
+                def _progress(status: str, frac: float, detail: str, done: bool) -> None:
+                    menu.set_progress(status, frac, detail, done=done)
+                    self._mark_dirty(None)
+
+                self._backends.data.reset_factory_plugins(_progress)
+
+            menu.set_rows(
+                [Row((Target("Reset all factory plugins", _do_reset, confirm=confirm),))]
+            )
+            menu.clear_progress()
+            self._mark_dirty(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _show_updates_menu(self) -> None:
         """Push the updates list directly, skipping the domain picker."""

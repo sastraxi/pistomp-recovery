@@ -24,6 +24,7 @@ PACKAGES_STAMP_FILE: str = f"{RECOVERY_DIR}/packages.stamp"
 PLUGINS_STAMP_FILE: str = f"{RECOVERY_DIR}/plugins.stamp"
 FACTORY_PACKAGES_FILE: str = "/etc/pistomp/factory-packages.list"
 FACTORY_LV2_BUNDLES_FILE: str = "/etc/pistomp/factory-lv2-bundles.list"
+LV2_PLUGINS_URL: str = "https://www.treefallsound.com/downloads/lv2plugins.tar.gz"
 LCD_WIDTH: int = 320
 LCD_HEIGHT: int = 240
 
