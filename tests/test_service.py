@@ -50,6 +50,30 @@ def test_service_crashed_active() -> None:
         assert _service_crashed("active", "jack") is False
 
 
+def test_service_crashed_activating_with_exit_code() -> None:
+    """The OnFailure race: Restart=always has moved the unit back to
+    'activating' but Result still holds 'exit-code' from the crash."""
+    with patch("pistomp_recovery.service.service_last_result", return_value="exit-code"):
+        assert _service_crashed("activating", "mod-ala-pi-stomp") is True
+
+
+def test_service_crashed_active_with_exit_code() -> None:
+    """Same race but systemd has already re-entered 'active' on a fast restart."""
+    with patch("pistomp_recovery.service.service_last_result", return_value="exit-code"):
+        assert _service_crashed("active", "mod-ala-pi-stomp") is True
+
+
+def test_service_crashed_activating_with_signal() -> None:
+    with patch("pistomp_recovery.service.service_last_result", return_value="signal"):
+        assert _service_crashed("activating", "mod-ala-pi-stomp") is True
+
+
+def test_service_crashed_activating_clean() -> None:
+    """A genuinely booting service (no prior crash) is not a crash."""
+    with patch("pistomp_recovery.service.service_last_result", return_value="success"):
+        assert _service_crashed("activating", "mod-ala-pi-stomp") is False
+
+
 # ---------------------------------------------------------------------------
 # diagnose_services
 # ---------------------------------------------------------------------------
@@ -103,6 +127,30 @@ def test_diagnose_services_no_crash() -> None:
 
     assert info.boot_mode == BootMode.USER_RECOVERY
     assert info.failed_service is None
+
+
+def test_diagnose_services_detects_onfailure_race() -> None:
+    """The real-world OnFailure race: mod-ala-pi-stomp is back in 'activating'
+    (Restart=always already queued the next attempt) but Result='exit-code'
+    still holds from the crash that triggered OnFailure=recovery."""
+    def _status(svc: str) -> str:
+        if svc == "mod-ala-pi-stomp":
+            return "activating"
+        return "active"
+
+    def _result(svc: str) -> str:
+        return "exit-code" if svc == "mod-ala-pi-stomp" else "success"
+
+    with (
+        patch("pistomp_recovery.service.service_status", side_effect=_status),
+        patch("pistomp_recovery.service.service_last_result", side_effect=_result),
+        patch("pistomp_recovery.service.service_journal", return_value="Traceback ..."),
+    ):
+        info = diagnose_services(["jack", "mod-host", "mod-ui", "mod-ala-pi-stomp"])
+
+    assert info.boot_mode == BootMode.CRASH_RECOVERY
+    assert info.failed_service == "mod-ala-pi-stomp"
+    assert info.crash_log == "Traceback ..."
 
 
 # ---------------------------------------------------------------------------

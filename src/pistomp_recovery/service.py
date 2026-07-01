@@ -13,6 +13,14 @@ from pistomp_recovery.packages.health import service_journal, service_last_resul
 
 logger = logging.getLogger(__name__)
 
+# systemd Result values that mean the last run failed.  Result persists
+# across ActiveState transitions and is only reset on a successful start.
+_CRASH_RESULTS: frozenset[str] = frozenset({
+    "exit-code", "signal", "core-dump", "oom-kill", "timeout",
+    "protocol", "watchdog", "start-limit-hit", "resources",
+    "exec-condition", "condition", "assert", "cleaning",
+})
+
 
 class BootMode(Enum):
     NORMAL = auto()
@@ -35,18 +43,16 @@ def diagnose_crash() -> CrashInfo:
 
 
 def _service_crashed(state: str, name: str) -> bool:
-    """True if the service is currently failed or last exited with an error.
+    """True if the service last ran with a non-success Result.
 
-    systemd transitions a failed unit from 'failed' → 'inactive' when it is
-    stopped (e.g. to satisfy Conflicts= in the recovery unit), so we can't rely
-    on ActiveState alone.  The Result property is only reset on *start*, so it
-    still reflects a crash even after the state becomes 'inactive'.
+    OnFailure fires immediately on a crash, but Restart=always has usually
+    already moved the unit back to 'activating'/'active' by the time we look,
+    so ActiveState alone misses it.  Result is reset only on a successful
+    start, so it still holds the crash.
     """
     if state == "failed":
         return True
-    if state == "inactive":
-        return service_last_result(name) not in ("", "success")
-    return False
+    return service_last_result(name) in _CRASH_RESULTS
 
 
 def diagnose_services(services: list[str]) -> CrashInfo:

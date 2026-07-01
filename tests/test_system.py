@@ -45,7 +45,7 @@ def system_facet(tmp_path: Path) -> FileFacet:
 
 class TestInitSystem:
     def test_copies_existing_files_as_factory_state(
-        self, system_facet: system.FileFacet
+        self, system_facet: FileFacet
     ) -> None:
         for filename in system_facet.files:
             Path(system_facet._source_path(filename)).write_text(
@@ -59,7 +59,7 @@ class TestInitSystem:
         assert git_branch_exists(system_facet.repo_dir, "factory")
 
     def test_factory_branch_created_only_once(
-        self, system_facet: system.FileFacet
+        self, system_facet: FileFacet
     ) -> None:
         first = system_facet.files[0]
         Path(system_facet._source_path(first)).write_text("v1")
@@ -72,7 +72,7 @@ class TestInitSystem:
 
 
 class TestDirtyDetection:
-    def test_clean_when_files_match(self, system_facet: system.FileFacet) -> None:
+    def test_clean_when_files_match(self, system_facet: FileFacet) -> None:
         for filename in system_facet.files:
             Path(system_facet._source_path(filename)).write_text("same")
         system_facet.init()
@@ -81,7 +81,7 @@ class TestDirtyDetection:
         assert not any(item.dirty for item in items.values())
 
     def test_dirty_when_live_file_changes(
-        self, system_facet: system.FileFacet
+        self, system_facet: FileFacet
     ) -> None:
         first = system_facet.files[0]
         Path(system_facet._source_path(first)).write_text("same")
@@ -94,7 +94,7 @@ class TestDirtyDetection:
 
 class TestStampAndRollback:
     def test_stamp_captures_current_state(
-        self, system_facet: system.FileFacet
+        self, system_facet: FileFacet
     ) -> None:
         first = system_facet.files[0]
         Path(system_facet._source_path(first)).write_text("v1")
@@ -108,7 +108,7 @@ class TestStampAndRollback:
         assert (system_facet.repo_dir / first).read_text() == "v2"
 
     def test_rollback_to_factory_restores_changed_file(
-        self, system_facet: system.FileFacet
+        self, system_facet: FileFacet
     ) -> None:
         first = system_facet.files[0]
         Path(system_facet._source_path(first)).write_text("factory")

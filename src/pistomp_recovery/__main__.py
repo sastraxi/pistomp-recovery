@@ -36,6 +36,11 @@ def main(args: list[str] | None = None) -> None:
     # Snapshot crash state immediately — before stop_main_app() or Conflicts=
     # can transition services to inactive and wipe their Result property.
     crash_info: CrashInfo = diagnose_crash()
+    logger.info(
+        "boot_mode=%s failed_service=%s",
+        crash_info.boot_mode.name,
+        crash_info.failed_service,
+    )
     if parsed.force_crash:
         crash_info.boot_mode = BootMode.CRASH_RECOVERY
     elif parsed.force_menu:
